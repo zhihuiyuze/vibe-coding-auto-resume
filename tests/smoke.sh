@@ -151,12 +151,13 @@ section "L2 — pane-grep.sh: per-fixture classification"
 
   # Each fixture: (file, expected match groups, expected non-match groups).
   declare -a CASES=(
-    "5h-limit-1.txt|limit|warning approaching weekly_limit"
-    "weekly-opus-1.txt|weekly_limit|warning"
-    "approaching-1.txt|warning|limit weekly_limit"
-    "api-error-tz.txt|api_error|warning"
-    "normal-exit.txt||limit weekly_limit warning api_error"
-    "real-error.txt||limit weekly_limit warning api_error"
+    "5h-limit-1.txt|limit|warning approaching weekly_limit limit_modal"
+    "weekly-opus-1.txt|weekly_limit|warning limit_modal"
+    "approaching-1.txt|warning|limit weekly_limit limit_modal"
+    "api-error-tz.txt|api_error|warning limit_modal"
+    "limit-modal-3option-1.txt|limit_modal|limit weekly_limit warning api_error"
+    "normal-exit.txt||limit weekly_limit warning api_error limit_modal"
+    "real-error.txt||limit weekly_limit warning api_error limit_modal"
   )
 
   for case in "${CASES[@]}"; do

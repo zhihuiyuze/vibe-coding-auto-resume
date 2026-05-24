@@ -26,7 +26,12 @@ source "$_SCRIPT_DIR/../lib/tmux-pane.sh"
 : "${VIBE_STATE_DIR:=${XDG_STATE_HOME:-$HOME/.local/state}/vibe}"
 : "${VIBE_SESSION:=default}"
 : "${CC_SESSION_FILE:=$VIBE_STATE_DIR/$VIBE_SESSION/session-id}"
+: "${CC_MODAL_STATE_FILE:=$VIBE_STATE_DIR/$VIBE_SESSION/modal-detected-at}"
+: "${CC_MODAL_STATE_TTL:=1800}"  # seconds; state file older than this is ignored
 mkdir -p "$(dirname "$CC_SESSION_FILE")" 2>/dev/null || true
+# Clean any leftover modal state from a previous (likely crashed) run.
+rm -f "$CC_MODAL_STATE_FILE" 2>/dev/null || true
+export CC_MODAL_STATE_FILE
 
 log()       { echo "[vibe-run] $*" >&2; }
 log_deg()   { echo "[degraded mode] $*" >&2; }
@@ -118,6 +123,7 @@ run_resume_cycle() {
   "${cmd[@]}" &
   local resume_pid=$!
   handle_post_resume "$resume_pid" &
+  watch_limit_modal "$resume_pid" &
   local exit_code=0
   wait "$resume_pid" || exit_code=$?
 
@@ -127,11 +133,24 @@ run_resume_cycle() {
     claude --continue "$@" &
     local cont_pid=$!
     handle_post_resume "$cont_pid" &
+    watch_limit_modal "$cont_pid" &
     exit_code=0
     wait "$cont_pid" || exit_code=$?
   fi
 
   return "$exit_code"
+}
+
+# Run a claude invocation in the background with a modal watcher. Blocks
+# until claude exits. Returns claude's exit code. The watcher is reaped
+# implicitly when claude exits (its `kill -0 $pid` check fails).
+run_with_modal_watch() {
+  "$@" &
+  local cpid=$!
+  watch_limit_modal "$cpid" &
+  local code=0
+  wait "$cpid" || code=$?
+  return "$code"
 }
 
 # Parse vibe-specific flags out of "$@" before passing to claude. Anything we
@@ -242,9 +261,9 @@ main() {
       # If we already have a session ID (from --resume or env), use it on cycle 0 too.
       if [[ -n "${CC_SESSION_ID:-}" ]]; then
         log "Starting with --resume $CC_SESSION_ID"
-        claude --resume "$CC_SESSION_ID" "$@" || claude_exit=$?
+        run_with_modal_watch claude --resume "$CC_SESSION_ID" "$@" || claude_exit=$?
       else
-        claude "$@" || claude_exit=$?
+        run_with_modal_watch claude "$@" || claude_exit=$?
       fi
     else
       local sid=""
@@ -253,25 +272,55 @@ main() {
     fi
 
     # Post-exit triage.
-    local pane reset_iso="" hit=0
+    local pane reset_iso="" hit=0 modal_detected=0
     pane="$(capture_tail)"
-    if pane_grep limit "$pane" 2>/dev/null \
-        || pane_grep weekly_limit "$pane" 2>/dev/null \
-        || pane_grep api_error "$pane" 2>/dev/null; then
-      hit=1
-    else
-      # L2.5 fallback: scan recent JSONL text. Catches subagent rate-limit
-      # messages buried in Claude's internal tab views that scrolled or were
-      # redrawn out of the tmux pane scrollback.
-      local jsonl_text
-      jsonl_text="$(jsonl_recent_text 500 2>/dev/null || true)"
-      if [[ -n "$jsonl_text" ]] \
-          && (pane_grep limit "$jsonl_text" 2>/dev/null \
-              || pane_grep weekly_limit "$jsonl_text" 2>/dev/null \
-              || pane_grep api_error "$jsonl_text" 2>/dev/null); then
+
+    # Modal-detected branch: if the watcher caught a limit modal during this
+    # cycle, treat as a limit hit and derive reset from the L1 block end —
+    # the modal text itself doesn't carry a clock-time we could grep.
+    if [[ -f "$CC_MODAL_STATE_FILE" ]]; then
+      local modal_iso modal_epoch now_epoch age
+      modal_iso="$(cat "$CC_MODAL_STATE_FILE" 2>/dev/null || true)"
+      modal_epoch="$(date -d "$modal_iso" +%s 2>/dev/null || echo 0)"
+      now_epoch="$(date +%s)"
+      age=$((now_epoch - modal_epoch))
+      rm -f "$CC_MODAL_STATE_FILE" 2>/dev/null || true
+      if (( age >= 0 && age <= CC_MODAL_STATE_TTL )); then
         hit=1
-        pane="$jsonl_text"
-        log "Detected via JSONL scan (pane tail missed it; likely subagent content)"
+        modal_detected=1
+        local stats block_end
+        stats="$(jsonl_stats 2>/dev/null || echo '{}')"
+        block_end="$(jq -r '.block_end_iso // empty' <<<"$stats" 2>/dev/null || true)"
+        if [[ -n "$block_end" ]]; then
+          reset_iso="$block_end"
+          log "Modal handled this cycle; using block_end_iso=$reset_iso for resume."
+        else
+          log "Modal handled this cycle; block_end_iso unavailable, will rely on other signals."
+        fi
+      else
+        log "Stale modal state file (age=${age}s, ttl=${CC_MODAL_STATE_TTL}s); ignoring."
+      fi
+    fi
+
+    if (( ! hit )); then
+      if pane_grep limit "$pane" 2>/dev/null \
+          || pane_grep weekly_limit "$pane" 2>/dev/null \
+          || pane_grep api_error "$pane" 2>/dev/null; then
+        hit=1
+      else
+        # L2.5 fallback: scan recent JSONL text. Catches subagent rate-limit
+        # messages buried in Claude's internal tab views that scrolled or were
+        # redrawn out of the tmux pane scrollback.
+        local jsonl_text
+        jsonl_text="$(jsonl_recent_text 500 2>/dev/null || true)"
+        if [[ -n "$jsonl_text" ]] \
+            && (pane_grep limit "$jsonl_text" 2>/dev/null \
+                || pane_grep weekly_limit "$jsonl_text" 2>/dev/null \
+                || pane_grep api_error "$jsonl_text" 2>/dev/null); then
+          hit=1
+          pane="$jsonl_text"
+          log "Detected via JSONL scan (pane tail missed it; likely subagent content)"
+        fi
       fi
     fi
 
@@ -280,7 +329,11 @@ main() {
       exit "$claude_exit"
     fi
 
-    reset_iso="$(extract_reset_time "$pane" 2>/dev/null || true)"
+    # extract_reset_time on the pane text first; only fall back to whatever
+    # the modal branch derived (block_end_iso) if the pane has no clock-time.
+    local extracted
+    extracted="$(extract_reset_time "$pane" 2>/dev/null || true)"
+    [[ -n "$extracted" ]] && reset_iso="$extracted"
 
     if (( l3_enabled )); then
       local l3 status reasoning l3_reset

@@ -25,6 +25,7 @@ This directory holds **one design doc per feature**. Design docs are the source 
 | 007 | [Soft-cap monitor](007-soft-cap-monitor.md) | draft | v2 |
 | 008 | [Post-resume compaction handling](008-post-resume-compaction.md) | accepted | v1 |
 | 009 | [Agent adapter pattern (Codex/Aider/...)](009-agent-adapters.md) | draft | future |
+| 010 | [Interactive limit-hit modal handler](010-limit-modal-handler.md) | accepted | v1 |
 
 ## Template
 

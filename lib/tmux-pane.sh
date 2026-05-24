@@ -10,6 +10,8 @@
 : "${CC_POST_RESUME_WAIT:=15}"      # seconds to watch for compaction prompt
 : "${CC_POST_RESUME_SETTLE:=2}"     # seconds before first poll
 : "${CC_COMPACTION_CHOICE:=keep}"
+: "${CC_MODAL_POLL_INTERVAL:=5}"    # seconds between limit-modal pane polls
+: "${CC_MODAL_QUIESCE:=10}"         # seconds to skip polling after sending Enter
 
 _CC_LIB_DIR_TP="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Ensure pane-grep helpers are available even when sourced standalone.
@@ -58,10 +60,41 @@ MSG
   return 0
 }
 
+# Watch for Claude's interactive limit-hit modal while a claude pid is alive.
+# When detected, send Enter (picks the default "❯ 1. Stop and wait for limit
+# to reset") and touch a state file so vibe-run's post-exit triage knows to
+# treat any subsequent exit as a limit hit (since the modal text doesn't
+# include a reset clock-time we could grep for).
+#
+# See docs/design/010-limit-modal-handler.md.
+#
+# Safety: we ONLY send keys after a positive pane_grep match. Sending Enter
+# at the chat prompt submits an empty message (harmless). Never sending the
+# literal "1" — risk of injecting it as chat text on a race.
+watch_limit_modal() {
+  local pid="${1:?pid required}"
+  local target="${CC_TMUX_TARGET:-claude}"
+  local state_file="${CC_MODAL_STATE_FILE:-${VIBE_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/vibe}/${VIBE_SESSION:-default}/modal-detected-at}"
+  mkdir -p "$(dirname "$state_file")" 2>/dev/null || true
+
+  while kill -0 "$pid" 2>/dev/null; do
+    sleep "$CC_MODAL_POLL_INTERVAL"
+    kill -0 "$pid" 2>/dev/null || return 0
+
+    if pane_grep limit_modal 2>/dev/null; then
+      echo "[vibe-run] Limit modal detected; sending Enter (selects 'Stop and wait')." >&2
+      tmux send-keys -t "$target" Enter 2>/dev/null || true
+      date -u +%Y-%m-%dT%H:%M:%SZ > "$state_file" 2>/dev/null || true
+      sleep "$CC_MODAL_QUIESCE"
+    fi
+  done
+}
+
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   case "${1:-}" in
     idle) detect_idle ;;
     post-resume) handle_post_resume "${2:-}" ;;
-    *) echo "usage: tmux-pane.sh {idle|post-resume [<pid>]}" >&2; exit 2 ;;
+    limit-modal) watch_limit_modal "${2:?pid}" ;;
+    *) echo "usage: tmux-pane.sh {idle|post-resume [<pid>]|limit-modal <pid>}" >&2; exit 2 ;;
   esac
 fi

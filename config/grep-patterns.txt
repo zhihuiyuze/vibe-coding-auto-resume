@@ -38,6 +38,13 @@ idle:^\s*>\s*$|^\s*│\s*$
 # Permission modal (tool approval mid-task)
 modal:permission|approve|deny|y/N|continue\?
 
+# Interactive limit-hit modal (>= v2.1.150). Distinctive line is option 1's text.
+# vibe-run's watcher uses this to know when to send Enter (cursor defaults to "❯ 1.").
+# DO NOT add option 2 ("Switch to usage credits") or option 3 ("Upgrade your plan")
+# to this pattern — picking those costs money or changes the user's plan.
+# See docs/design/010-limit-modal-handler.md.
+limit_modal:Stop and wait for limit to reset
+
 # Conditional compaction prompt — v2.1.150 verbatim wording UNKNOWN.
 # Issues #46751 and #42146 reference the behavior. This is best-effort.
 # Add verbatim text to tests/fixtures/compaction-prompt-*.txt when seen.
