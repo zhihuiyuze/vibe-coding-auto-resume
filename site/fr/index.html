@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#fdfdfc" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1a1a1a" media="(prefers-color-scheme: dark)">
+
+  <title>vibe-coding-auto-resume — reprise automatique de Claude Code</title>
+  <meta name="description" content="Enveloppe le CLI Claude Code dans tmux, dort jusqu'au reset du quota, puis reprend la même session. Cœur zéro-dépendance ; LLM optionnel pour la détection fine.">
+
+  <link rel="canonical" href="https://vibe-resume.huize.org/fr/">
+  <link rel="alternate" hreflang="en"        href="https://vibe-resume.huize.org/">
+  <link rel="alternate" hreflang="zh"        href="https://vibe-resume.huize.org/zh/">
+  <link rel="alternate" hreflang="fr"        href="https://vibe-resume.huize.org/fr/">
+  <link rel="alternate" hreflang="ru"        href="https://vibe-resume.huize.org/ru/">
+  <link rel="alternate" hreflang="x-default" href="https://vibe-resume.huize.org/">
+
+  <meta property="og:type"           content="website">
+  <meta property="og:site_name"      content="vibe-coding-auto-resume">
+  <meta property="og:title"          content="vibe-coding-auto-resume — reprise automatique de Claude Code">
+  <meta property="og:description"    content="Enveloppe le CLI Claude Code dans tmux, dort jusqu'au reset du quota, puis reprend la même session.">
+  <meta property="og:url"            content="https://vibe-resume.huize.org/fr/">
+  <meta property="og:locale"         content="fr_FR">
+  <meta property="og:locale:alternate" content="en_US">
+  <meta property="og:locale:alternate" content="zh_CN">
+  <meta property="og:locale:alternate" content="ru_RU">
+
+  <meta name="twitter:card"        content="summary">
+  <meta name="twitter:title"       content="vibe-coding-auto-resume">
+  <meta name="twitter:description" content="Reprise automatique de Claude Code après le reset du quota. tmux + JSONL + LLM optionnel.">
+
+  <link rel="stylesheet" href="/style.css">
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "vibe-coding-auto-resume",
+    "description": "Reprise automatique du CLI Claude Code après le reset du quota. tmux + analyse JSONL + détection LLM optionnelle.",
+    "url": "https://vibe-resume.huize.org/fr/",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "Linux, macOS",
+    "license": "https://opensource.org/licenses/MIT",
+    "codeRepository": "https://github.com/zhihuiyuze/vibe-coding-auto-resume",
+    "programmingLanguage": "Shell",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "inLanguage": ["en", "zh", "fr", "ru"]
+  }
+  </script>
+</head>
+<body>
+
+<header>
+  <h1>vibe-coding-auto-resume</h1>
+  <p class="tagline">Reprise automatique de <code>claude</code> après le reset du quota.</p>
+  <nav>
+    <a href="#install">Installation</a>
+    <a href="#how">Fonctionnement</a>
+    <a href="#flags">CLI</a>
+    <a href="https://github.com/zhihuiyuze/vibe-coding-auto-resume">Source</a>
+  </nav>
+  <p class="langs"><a href="/">English</a> · <a href="/zh/">中文</a> · <strong>Français</strong> · <a href="/ru/">Русский</a></p>
+</header>
+
+<main>
+
+<section>
+  <h2>Le problème</h2>
+  <p>Les limites 5 h et hebdomadaires de Claude Code interrompent les longues boucles agentiques. Les déconnexions SSH tuent la session. On se réveille avec une tâche à moitié finie et un terminal périmé.</p>
+</section>
+
+<section>
+  <h2>Ce qu'il fait</h2>
+  <ul>
+    <li>Enveloppe <code>claude</code> pour survivre au bloc 5 h : dort jusqu'au reset, puis reprend le même UUID de session.</li>
+    <li>Tourne dans une session tmux nommée — les coupures SSH n'ont plus d'effet.</li>
+    <li>Détection à trois couches (déterministe d'abord, LLM optionnel et opt-in).</li>
+    <li>Gère automatiquement la nouvelle modale interactive de limite (sélectionne l'option sûre « Stop and wait »).</li>
+    <li>Multi-session : <code>vibe work feature-a</code> et <code>vibe work bugfix</code> cohabitent, états isolés.</li>
+    <li>Dépendances cœur : seulement <code>bash</code>, <code>jq</code>, <code>curl</code>, <code>tmux</code>. Ni npm, ni pip.</li>
+  </ul>
+</section>
+
+<section id="install">
+  <h2>Installation</h2>
+<pre><code>git clone https://github.com/zhihuiyuze/vibe-coding-auto-resume.git ~/vibe
+cd ~/vibe
+./install.sh
+source ~/.bashrc</code></pre>
+  <p>Ensuite, depuis n'importe quel répertoire projet :</p>
+<pre><code>vibe work                                       # cd dans le projet + tmux
+vibe run                                        # claude avec reprise automatique
+vibe run --resume &lt;session-uuid&gt;                # reprendre une session existante
+vibe status                                     # voir l'usage du bloc en cours</code></pre>
+  <p>Optionnel : ajoutez une clé LLM dans <code>~/.config/vibe/env</code> (créé par l'installeur) pour activer la détection L3.</p>
+</section>
+
+<section id="how">
+  <h2>Comment marche la détection</h2>
+  <p>Quand <code>claude</code> termine, trois signaux décident de la suite :</p>
+  <table>
+    <tr><th>Couche</th><th>Lit</th><th>Quand elle brille</th></tr>
+    <tr><td><strong>L1</strong></td><td><code>~/.claude/projects/&lt;cwd&gt;/*.jsonl</code> — le log natif de Claude</td><td>Toujours actif. Suit l'usage de tokens et début/fin du bloc.</td></tr>
+    <tr><td><strong>L2</strong></td><td><code>tmux capture-pane</code> + scrollback</td><td>Message de limite visible dans le panneau principal.</td></tr>
+    <tr><td><strong>L2.5</strong></td><td>Scan texte du tail JSONL</td><td>Messages de sous-agent qui ont défilé hors du panneau visible.</td></tr>
+    <tr><td><strong>L3</strong></td><td>Classifieur LLM (DeepSeek / Claude Haiku / OpenAI / Ollama)</td><td>Opt-in. Robuste aux changements de formulation ; extrait l'heure de reset sémantiquement.</td></tr>
+  </table>
+  <p>L1 et L2/L2.5 sont 100 % locales. L3 est opt-in et coûte environ <code>0,05 $/bloc</code> avec DeepSeek.</p>
+</section>
+
+<section id="flags">
+  <h2>Flags CLI</h2>
+<pre><code>vibe run [...args]
+  --resume &lt;uuid&gt;        reprendre une session spécifique (passé une fois, utilisé pour tous les cycles)
+  --threshold &lt;0..1&gt;     plafond souple opt-in (off par défaut — brûle le bloc)
+  --max-cycles &lt;n&gt;       cycles de reprise par invocation (0 = illimité, défaut 1)
+  --mode auto|session-id|continue
+  --provider deepseek|claude|openai|ollama
+  --no-l3                force L1+L2 seulement
+  --dangerously-skip-permissions
+  -p "prompt"
+  ... tous les autres flags passent tels quels à claude</code></pre>
+</section>
+
+<section>
+  <h2>Configuration</h2>
+  <table>
+    <tr><th>Où</th><th>Quoi</th></tr>
+    <tr><td><code>~/.config/vibe/env</code></td><td>Clés LLM + paramètres (chmod 600). Sourcé par le bloc bashrc avec <code>set -a</code>.</td></tr>
+    <tr><td><code>~/.local/state/vibe/&lt;name&gt;/</code></td><td>Cache UUID par session. Isolé entre <code>vibe work foo</code> et <code>vibe work bar</code>.</td></tr>
+    <tr><td><code>&lt;votre-projet&gt;/HANDOFF.md</code></td><td>Fichier de continuité inter-session. Créé seulement si vous lancez <code>vibe setup-workspace</code> depuis ce projet.</td></tr>
+  </table>
+</section>
+
+<section>
+  <h2>Ce qu'il ne fait jamais</h2>
+  <ul>
+    <li>Toucher d'autres répertoires projet sans un <code>vibe setup-workspace</code> explicite depuis l'intérieur.</li>
+    <li>Sourcer le <code>.env</code> / <code>.env.local</code> de votre projet. Les identifiants outils vivent dans <code>~/.config/vibe/env</code> ; votre env projet vous appartient.</li>
+    <li>Exécuter <code>sudo</code>. L'installeur imprime les une ou deux commandes qui en ont besoin et s'arrête.</li>
+    <li>Envoyer quoi que ce soit hors machine quand L3 est désactivé (le défaut tant qu'aucune clé n'est ajoutée).</li>
+    <li>Auto-sélectionner une option payante sur la modale de limite. Seulement « Stop and wait » — jamais « Switch to usage credits » ni « Upgrade your plan ».</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Docs</h2>
+  <ul>
+    <li><a href="https://github.com/zhihuiyuze/vibe-coding-auto-resume/blob/main/AGENTS.md">AGENTS.md</a> — architecture, guide contributeur, workflow spec-first.</li>
+    <li><a href="https://github.com/zhihuiyuze/vibe-coding-auto-resume/blob/main/docs/architecture.md">docs/architecture.md</a> — schéma complet du flux de données.</li>
+    <li><a href="https://github.com/zhihuiyuze/vibe-coding-auto-resume/tree/main/docs/design">docs/design/</a> — un doc de design accepté par fonctionnalité.</li>
+  </ul>
+</section>
+
+</main>
+
+<footer>
+  <p>Licence MIT. Source sur <a href="https://github.com/zhihuiyuze/vibe-coding-auto-resume">GitHub</a>.</p>
+  <p class="langs"><a href="/">English</a> · <a href="/zh/">中文</a> · <strong>Français</strong> · <a href="/ru/">Русский</a></p>
+</footer>
+
+</body>
+</html>

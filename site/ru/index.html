@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#fdfdfc" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1a1a1a" media="(prefers-color-scheme: dark)">
+
+  <title>vibe-coding-auto-resume — автовозобновление Claude Code после лимита</title>
+  <meta name="description" content="Оборачивает CLI Claude Code в tmux, спит до сброса лимита и возобновляет ту же сессию. Ядро без зависимостей; LLM-детекция — опционально.">
+
+  <link rel="canonical" href="https://vibe-resume.huize.org/ru/">
+  <link rel="alternate" hreflang="en"        href="https://vibe-resume.huize.org/">
+  <link rel="alternate" hreflang="zh"        href="https://vibe-resume.huize.org/zh/">
+  <link rel="alternate" hreflang="fr"        href="https://vibe-resume.huize.org/fr/">
+  <link rel="alternate" hreflang="ru"        href="https://vibe-resume.huize.org/ru/">
+  <link rel="alternate" hreflang="x-default" href="https://vibe-resume.huize.org/">
+
+  <meta property="og:type"           content="website">
+  <meta property="og:site_name"      content="vibe-coding-auto-resume">
+  <meta property="og:title"          content="vibe-coding-auto-resume — автовозобновление Claude Code">
+  <meta property="og:description"    content="Оборачивает CLI Claude Code в tmux, спит до сброса лимита и возобновляет ту же сессию.">
+  <meta property="og:url"            content="https://vibe-resume.huize.org/ru/">
+  <meta property="og:locale"         content="ru_RU">
+  <meta property="og:locale:alternate" content="en_US">
+  <meta property="og:locale:alternate" content="zh_CN">
+  <meta property="og:locale:alternate" content="fr_FR">
+
+  <meta name="twitter:card"        content="summary">
+  <meta name="twitter:title"       content="vibe-coding-auto-resume">
+  <meta name="twitter:description" content="Автовозобновление Claude Code после лимита. tmux + JSONL + опциональный LLM.">
+
+  <link rel="stylesheet" href="/style.css">
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "vibe-coding-auto-resume",
+    "description": "Автовозобновление CLI Claude Code после сброса лимита. tmux + парсинг JSONL + опциональная LLM-детекция.",
+    "url": "https://vibe-resume.huize.org/ru/",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "Linux, macOS",
+    "license": "https://opensource.org/licenses/MIT",
+    "codeRepository": "https://github.com/zhihuiyuze/vibe-coding-auto-resume",
+    "programmingLanguage": "Shell",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "inLanguage": ["en", "zh", "fr", "ru"]
+  }
+  </script>
+</head>
+<body>
+
+<header>
+  <h1>vibe-coding-auto-resume</h1>
+  <p class="tagline">Автовозобновление <code>claude</code> после сброса лимита.</p>
+  <nav>
+    <a href="#install">Установка</a>
+    <a href="#how">Как работает</a>
+    <a href="#flags">CLI</a>
+    <a href="https://github.com/zhihuiyuze/vibe-coding-auto-resume">Исходник</a>
+  </nav>
+  <p class="langs"><a href="/">English</a> · <a href="/zh/">中文</a> · <a href="/fr/">Français</a> · <strong>Русский</strong></p>
+</header>
+
+<main>
+
+<section>
+  <h2>Проблема</h2>
+  <p>5-часовой и недельный лимиты Claude Code прерывают долгие агентные циклы. Разрыв SSH убивает сессию. Просыпаешься — задача на полпути, терминал мёртв.</p>
+</section>
+
+<section>
+  <h2>Что делает</h2>
+  <ul>
+    <li>Оборачивает <code>claude</code>, чтобы пережить 5-часовой блок: спит до сброса и возобновляет ту же session UUID.</li>
+    <li>Работает в именованной tmux-сессии — разрывы SSH не страшны.</li>
+    <li>Трёхуровневая детекция (детерминизм впереди, LLM — опционально и по согласию).</li>
+    <li>Автоматически обрабатывает новое интерактивное модальное окно лимита (выбирает безопасный пункт «Stop and wait»).</li>
+    <li>Мульти-сессия: <code>vibe work feature-a</code> и <code>vibe work bugfix</code> живут параллельно, состояние изолировано.</li>
+    <li>Ядро зависит только от <code>bash</code>, <code>jq</code>, <code>curl</code>, <code>tmux</code>. Никакого npm и pip.</li>
+  </ul>
+</section>
+
+<section id="install">
+  <h2>Установка</h2>
+<pre><code>git clone https://github.com/zhihuiyuze/vibe-coding-auto-resume.git ~/vibe
+cd ~/vibe
+./install.sh
+source ~/.bashrc</code></pre>
+  <p>Затем из любого каталога проекта:</p>
+<pre><code>vibe work                                       # cd в проект + tmux
+vibe run                                        # claude с автовозобновлением
+vibe run --resume &lt;session-uuid&gt;                # возобновить существующую сессию
+vibe status                                     # текущая утилизация блока</code></pre>
+  <p>Опционально: положите LLM-ключ в <code>~/.config/vibe/env</code> (создаётся установщиком), чтобы включить L3-детекцию.</p>
+</section>
+
+<section id="how">
+  <h2>Как работает детекция</h2>
+  <p>Когда <code>claude</code> завершается, три сигнала решают, что произошло:</p>
+  <table>
+    <tr><th>Уровень</th><th>Читает</th><th>Когда полезен</th></tr>
+    <tr><td><strong>L1</strong></td><td><code>~/.claude/projects/&lt;cwd&gt;/*.jsonl</code> — собственный лог Claude</td><td>Всегда включён. Считает токены и границы блока.</td></tr>
+    <tr><td><strong>L2</strong></td><td><code>tmux capture-pane</code> + scrollback</td><td>Сообщение о лимите видно в основной панели.</td></tr>
+    <tr><td><strong>L2.5</strong></td><td>Сканирование хвоста JSONL</td><td>Сообщения сабагентов, ушедшие за пределы видимой панели.</td></tr>
+    <tr><td><strong>L3</strong></td><td>LLM-классификатор (DeepSeek / Claude Haiku / OpenAI / Ollama)</td><td>Опционально. Устойчив к изменениям формулировок; семантически извлекает время сброса.</td></tr>
+  </table>
+  <p>L1 и L2/L2.5 — полностью локально. L3 опционален и стоит примерно <code>$0.05 за блок</code> с DeepSeek.</p>
+</section>
+
+<section id="flags">
+  <h2>Флаги CLI</h2>
+<pre><code>vibe run [...args]
+  --resume &lt;uuid&gt;        возобновить конкретную сессию (передаётся один раз, для всех циклов)
+  --threshold &lt;0..1&gt;     мягкий потолок (по умолчанию выключен — «сжигаем блок»)
+  --max-cycles &lt;n&gt;       циклов возобновления за вызов (0 = без лимита, по умолчанию 1)
+  --mode auto|session-id|continue
+  --provider deepseek|claude|openai|ollama
+  --no-l3                принудительно только L1+L2
+  --dangerously-skip-permissions
+  -p "prompt"
+  ... любые другие флаги пробрасываются в claude</code></pre>
+</section>
+
+<section>
+  <h2>Конфигурация</h2>
+  <table>
+    <tr><th>Где</th><th>Что</th></tr>
+    <tr><td><code>~/.config/vibe/env</code></td><td>LLM-ключи и настройки (chmod 600). Подгружается из bashrc-блока с <code>set -a</code>.</td></tr>
+    <tr><td><code>~/.local/state/vibe/&lt;name&gt;/</code></td><td>Кэш UUID сессии. Изолирован между <code>vibe work foo</code> и <code>vibe work bar</code>.</td></tr>
+    <tr><td><code>&lt;ваш-проект&gt;/HANDOFF.md</code></td><td>Файл преемственности между сессиями. Создаётся только если запустить <code>vibe setup-workspace</code> изнутри проекта.</td></tr>
+  </table>
+</section>
+
+<section>
+  <h2>Чего никогда не делает</h2>
+  <ul>
+    <li>Не трогает каталоги других проектов без явного <code>vibe setup-workspace</code> изнутри.</li>
+    <li>Не подгружает <code>.env</code> / <code>.env.local</code> вашего проекта. Учётки инструмента живут в <code>~/.config/vibe/env</code>; ваш env — ваш.</li>
+    <li>Не запускает <code>sudo</code>. Установщик распечатает одну-две команды, которым sudo нужен, и остановится.</li>
+    <li>Ничего не отправляет наружу, если L3 выключен (по умолчанию — до добавления ключа).</li>
+    <li>Никогда не выбирает платные опции в модальном окне лимита. Только «Stop and wait» — не «Switch to usage credits» и не «Upgrade your plan».</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Документация</h2>
+  <ul>
+    <li><a href="https://github.com/zhihuiyuze/vibe-coding-auto-resume/blob/main/AGENTS.md">AGENTS.md</a> — архитектура, гайд контрибьютора, spec-first.</li>
+    <li><a href="https://github.com/zhihuiyuze/vibe-coding-auto-resume/blob/main/docs/architecture.md">docs/architecture.md</a> — полная схема потока данных.</li>
+    <li><a href="https://github.com/zhihuiyuze/vibe-coding-auto-resume/tree/main/docs/design">docs/design/</a> — по одному принятому design-документу на фичу.</li>
+  </ul>
+</section>
+
+</main>
+
+<footer>
+  <p>Лицензия MIT. Исходник на <a href="https://github.com/zhihuiyuze/vibe-coding-auto-resume">GitHub</a>.</p>
+  <p class="langs"><a href="/">English</a> · <a href="/zh/">中文</a> · <a href="/fr/">Français</a> · <strong>Русский</strong></p>
+</footer>
+
+</body>
+</html>

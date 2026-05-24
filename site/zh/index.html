@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#fdfdfc" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1a1a1a" media="(prefers-color-scheme: dark)">
+
+  <title>vibe-coding-auto-resume — Claude Code 限额自动恢复</title>
+  <meta name="description" content="在 tmux 里包一层 Claude Code CLI，hit 限额后自动 sleep 到 reset 再 resume 原会话。核心零依赖，LLM 检测可选。">
+
+  <link rel="canonical" href="https://vibe-resume.huize.org/zh/">
+  <link rel="alternate" hreflang="en"        href="https://vibe-resume.huize.org/">
+  <link rel="alternate" hreflang="zh"        href="https://vibe-resume.huize.org/zh/">
+  <link rel="alternate" hreflang="fr"        href="https://vibe-resume.huize.org/fr/">
+  <link rel="alternate" hreflang="ru"        href="https://vibe-resume.huize.org/ru/">
+  <link rel="alternate" hreflang="x-default" href="https://vibe-resume.huize.org/">
+
+  <meta property="og:type"           content="website">
+  <meta property="og:site_name"      content="vibe-coding-auto-resume">
+  <meta property="og:title"          content="vibe-coding-auto-resume — Claude Code 限额自动恢复">
+  <meta property="og:description"    content="在 tmux 里包一层 Claude Code CLI，hit 限额后自动 sleep 到 reset 再 resume 原会话。">
+  <meta property="og:url"            content="https://vibe-resume.huize.org/zh/">
+  <meta property="og:locale"         content="zh_CN">
+  <meta property="og:locale:alternate" content="en_US">
+  <meta property="og:locale:alternate" content="fr_FR">
+  <meta property="og:locale:alternate" content="ru_RU">
+
+  <meta name="twitter:card"        content="summary">
+  <meta name="twitter:title"       content="vibe-coding-auto-resume">
+  <meta name="twitter:description" content="Claude Code 限额自动恢复。tmux + JSONL 解析 + 可选 LLM 检测。">
+
+  <link rel="stylesheet" href="/style.css">
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "vibe-coding-auto-resume",
+    "description": "Claude Code 限额自动恢复。tmux + JSONL 解析 + 可选 LLM 检测。",
+    "url": "https://vibe-resume.huize.org/zh/",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "Linux, macOS",
+    "license": "https://opensource.org/licenses/MIT",
+    "codeRepository": "https://github.com/zhihuiyuze/vibe-coding-auto-resume",
+    "programmingLanguage": "Shell",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "inLanguage": ["en", "zh", "fr", "ru"]
+  }
+  </script>
+</head>
+<body>
+
+<header>
+  <h1>vibe-coding-auto-resume</h1>
+  <p class="tagline">Claude Code hit 限额后自动 <code>resume</code>。</p>
+  <nav>
+    <a href="#install">安装</a>
+    <a href="#how">工作原理</a>
+    <a href="#flags">CLI 参数</a>
+    <a href="https://github.com/zhihuiyuze/vibe-coding-auto-resume">源码</a>
+  </nav>
+  <p class="langs"><a href="/">English</a> · <strong>中文</strong> · <a href="/fr/">Français</a> · <a href="/ru/">Русский</a></p>
+</header>
+
+<main>
+
+<section>
+  <h2>痛点</h2>
+  <p>Claude Code 的 5 小时和周限额会打断长 agentic 任务，SSH 断开会让会话彻底死。醒来发现任务半成品，终端也丢了。</p>
+</section>
+
+<section>
+  <h2>它做什么</h2>
+  <ul>
+    <li>包一层 <code>claude</code>，hit 5 小时块 → sleep 到 reset → 用同一个 session UUID 自动续接。</li>
+    <li>跑在命名的 tmux session 里，SSH 断了不影响。</li>
+    <li>三层检测：本地确定性优先，LLM 可选并需 opt-in。</li>
+    <li>自动处理新的交互式限额 modal（自动选安全选项 "Stop and wait"）。</li>
+    <li>多会话：<code>vibe work feature-a</code> 和 <code>vibe work bugfix</code> 并行隔离。</li>
+    <li>核心只依赖 <code>bash</code>、<code>jq</code>、<code>curl</code>、<code>tmux</code>，无 npm、无 pip。</li>
+  </ul>
+</section>
+
+<section id="install">
+  <h2>安装</h2>
+<pre><code>git clone https://github.com/zhihuiyuze/vibe-coding-auto-resume.git ~/vibe
+cd ~/vibe
+./install.sh
+source ~/.bashrc</code></pre>
+  <p>之后在任意项目目录：</p>
+<pre><code>vibe work                                       # 进入项目 + 起 tmux
+vibe run                                        # 启动 claude（带自动续接）
+vibe run --resume &lt;session-uuid&gt;                # 恢复某个旧会话
+vibe status                                     # 查看当前 block 用量</code></pre>
+  <p>可选：往 installer 创建的 <code>~/.config/vibe/env</code> 里塞个 LLM key，升级到三层检测。</p>
+</section>
+
+<section id="how">
+  <h2>检测原理</h2>
+  <p>当 <code>claude</code> 退出时，三层信号判断刚才发生了什么：</p>
+  <table>
+    <tr><th>层</th><th>读取来源</th><th>什么时候有用</th></tr>
+    <tr><td><strong>L1</strong></td><td><code>~/.claude/projects/&lt;cwd&gt;/*.jsonl</code> — Claude 自己的日志</td><td>常开。算 token 用量、block 开始/结束。</td></tr>
+    <tr><td><strong>L2</strong></td><td><code>tmux capture-pane</code> + 滚动缓冲</td><td>主窗口能看到的限额提示。</td></tr>
+    <tr><td><strong>L2.5</strong></td><td>JSONL 尾部文本扫描</td><td>子 agent 的限额提示被滚出窗口外时兜底。</td></tr>
+    <tr><td><strong>L3</strong></td><td>LLM 分类器（DeepSeek / Claude Haiku / OpenAI / Ollama）</td><td>Opt-in。对措辞变化鲁棒，能语义提取 reset 时间。</td></tr>
+  </table>
+  <p>L1 和 L2/L2.5 完全本地、零外发。L3 是 opt-in，DeepSeek 大概 <code>$0.05/block</code>。</p>
+</section>
+
+<section id="flags">
+  <h2>CLI 参数</h2>
+<pre><code>vibe run [...args]
+  --resume &lt;uuid&gt;        恢复指定会话（传一次，所有续接 cycle 都用）
+  --threshold &lt;0..1&gt;     opt-in 软上限（默认关 — 榨干当前 block）
+  --max-cycles &lt;n&gt;       本次调用最多续接几次（0 = 无限，默认 1）
+  --mode auto|session-id|continue
+  --provider deepseek|claude|openai|ollama
+  --no-l3                强制只用 L1+L2
+  --dangerously-skip-permissions
+  -p "prompt"
+  ... 其它任何参数都透传给 claude</code></pre>
+</section>
+
+<section>
+  <h2>配置</h2>
+  <table>
+    <tr><th>位置</th><th>内容</th></tr>
+    <tr><td><code>~/.config/vibe/env</code></td><td>LLM keys + 可调参数（chmod 600）。bashrc 里的标记块用 <code>set -a</code> 导出。</td></tr>
+    <tr><td><code>~/.local/state/vibe/&lt;name&gt;/</code></td><td>各 session 的 UUID 缓存。<code>vibe work foo</code> 和 <code>vibe work bar</code> 互相隔离。</td></tr>
+    <tr><td><code>&lt;your-project&gt;/HANDOFF.md</code></td><td>跨会话续接文件。仅在你从该项目内运行 <code>vibe setup-workspace</code> 时创建。</td></tr>
+  </table>
+</section>
+
+<section>
+  <h2>它永远不做的事</h2>
+  <ul>
+    <li>不动其他项目目录，除非你从那个项目内显式跑 <code>vibe setup-workspace</code>。</li>
+    <li>不读你项目的 <code>.env</code> / <code>.env.local</code>。工具凭证在 <code>~/.config/vibe/env</code>，项目环境是你的。</li>
+    <li>不跑 <code>sudo</code>。安装器只会打印需要 sudo 的一两条命令然后停下。</li>
+    <li>L3 关闭时（默认）任何数据都不外发。</li>
+    <li>限额 modal 永不自动选付费选项 — 只选 "Stop and wait"，绝不碰 "Switch to usage credits" 或 "Upgrade your plan"。</li>
+  </ul>
+</section>
+
+<section>
+  <h2>文档</h2>
+  <ul>
+    <li><a href="https://github.com/zhihuiyuze/vibe-coding-auto-resume/blob/main/AGENTS.md">AGENTS.md</a> — 架构、贡献指南、spec-first 工作流。</li>
+    <li><a href="https://github.com/zhihuiyuze/vibe-coding-auto-resume/blob/main/docs/architecture.md">docs/architecture.md</a> — 完整数据流图。</li>
+    <li><a href="https://github.com/zhihuiyuze/vibe-coding-auto-resume/tree/main/docs/design">docs/design/</a> — 每个 feature 一个已接受的设计文档。</li>
+  </ul>
+</section>
+
+</main>
+
+<footer>
+  <p>MIT 协议。源码在 <a href="https://github.com/zhihuiyuze/vibe-coding-auto-resume">GitHub</a>。</p>
+  <p class="langs"><a href="/">English</a> · <strong>中文</strong> · <a href="/fr/">Français</a> · <a href="/ru/">Русский</a></p>
+</footer>
+
+</body>
+</html>

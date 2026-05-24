@@ -1,101 +1,144 @@
 # vibe-coding-auto-resume
 
-Reprise automatique des sessions Claude Code CLI après les rate limits : les tâches agentiques longues, le vibe coding et les jobs nocturnes survivent aux limites de 5 heures et hebdomadaires sans redémarrage manuel.
+Enveloppez le CLI Claude Code dans tmux pour que vos longues tâches agentiques survivent aux rate limits, aux coupures SSH et aux runs nocturnes — sans surveiller l'horloge de reset.
 
 [English](README.md) | [中文](README.zh.md) | [***Français***](README.fr.md) | [Русский](README.ru.md)
 
-## Le problème
-
-Si vous utilisez Claude Code (`claude`) pour du vrai travail — tâches agentiques longues, refactors de plusieurs heures, sessions de vibe coding via SSH — vous finissez par taper le mur :
-
-- La fenêtre de rate limit de 5 heures coupe en plein milieu d'une tâche. Il faut retenir l'heure de reset et relancer `claude --continue` à la main.
-- Les limites hebdomadaires font pareil, sur une horloge plus longue.
-- Une coupure SSH tue le process. Vous revenez du déjeuner, la session a disparu.
-- Aucun moyen intégré de voir combien du block courant a été consommé.
-- Les wrappers existants basés sur le texte du TUI cassent dès que Claude reformule un message.
-
-`vibe-coding-auto-resume` est un petit ensemble de scripts bash qui règle tout cela sans dépendances lourdes.
-
-## Ce que ça fait
-
-- **Lance `claude` dans tmux** pour que les coupures SSH, la fermeture du terminal ou la mise en veille du laptop ne tuent pas la session.
-- **Détection des rate limits en trois couches** : parsing JSONL de `~/.claude/projects/*.jsonl` (L1), regex sur le pane tmux contre le texte verbatim du TUI (L2), classification LLM optionnelle (L3) pour les changements de wording et les edge cases.
-- **Reprise auto après reset** : dort jusqu'à l'heure de reset extraite + un petit pad, puis relance via `claude --resume <session-uuid>` (préféré, préserve le cache) ou `claude --continue` (fallback).
-- **Capture automatique du session UUID** en surveillant le répertoire JSONL, pour que la reprise vise la session exacte et évite le bug d'invalidation de cache de `--continue`.
-- **Fichier de continuité `HANDOFF.md`** pour le contexte qui doit survivre même à un redémarrage complet.
-- **L1+L2 sans dépendances externes** (juste `bash`, `jq`, `tmux`, `curl`). L3 est opt-in et désactivé par défaut.
-
-Un daemon de monitoring du soft cap en arrière-plan (v2) qui prévient Claude à l'approche de la limite pour qu'il sauvegarde l'avancement est **planifié, pas encore implémenté**.
-
-## Installation
+## Installation (une fois)
 
 ```bash
 git clone https://github.com/zhihuiyuze/vibe-coding-auto-resume.git ~/dev/claude-auto-continue
 cd ~/dev/claude-auto-continue
 ./install.sh
-sudo apt install tmux  # si absent
+sudo apt install tmux  # seulement si absent — l'installeur vous le dit
 source ~/.bashrc
 ```
 
-L'installateur est idempotent : il crée des symlinks `vibe-run` et `vibe-session-capture` dans `~/.local/bin/`, ajoute un petit snippet à `~/.tmux.conf` et une fonction `vibe work` dans `~/.bashrc`. Il ne touche à rien sous `~/.claude/`.
+L'installeur est idempotent. Il symlink `vibe-run`, `vibe-status`, `vibe-session-capture` dans `~/.local/bin/`, ajoute une fonction shell `vibe` à `~/.bashrc`, et ajoute un snippet tmux. Il ne touche jamais à `~/.claude/` et ne lance jamais `sudo` à votre place.
 
-## Utilisation
+---
 
-Workflow typique :
+## Trois scénarios — choisissez le vôtre
+
+### 1. Je démarre une nouvelle tâche Claude
 
 ```bash
-vibe work            # entre dans la session tmux "claude" au cwd de votre projet
-vibe-run      # à utiliser à la place de `claude` — mêmes flags, même comportement
-# Ctrl+b d pour détacher. SSH peut tomber ; la session continue.
-# Plus tard : vibe work à nouveau pour réattacher.
+cd ~/dev/<votre-projet>
+vibe work                  # cd ici + ouvre une session tmux nommée
+vibe run                   # remplace `claude` — mêmes flags, même UI
 ```
 
-Quand `claude` sort à cause d'un rate limit, `vibe-run` parse l'heure de reset, dort jusque-là (+60s de pad), puis reprend la même session UUID. Quand `claude` sort proprement ou sur une vraie erreur, le wrapper sort avec le même code — il ne retente **pas** aveuglément.
+Utilisez Claude normalement. Quand le bloc 5 h est épuisé, `vibe run` le détecte, dort jusqu'au reset, et relance **le même UUID de session** automatiquement. Si la nouvelle modale interactive d'Anthropic apparaît (`What do you want to do? 1. Stop and wait …`), le wrapper sélectionne l'option sûre « Stop and wait » à votre place.
 
-## Activation optionnelle du LLM L3
+Pour laisser la session tourner et revenir plus tard : `Ctrl+b d`. Pour revenir : `vibe work`.
 
-L1 (parsing JSONL) et L2 (regex sur le pane) couvrent les cas courants sans appel externe. Pour mieux gérer les changements de wording du TUI et les edge cases — et pour extraire les heures de reset que la regex L2 manque — on peut activer la classification LLM L3.
+### 2. Je veux reprendre une session démarrée plus tôt
 
-Providers supportés :
-
-- **DeepSeek** (`DEEPSEEK_API_KEY`, modèle `deepseek-chat`) — le moins cher
-- **Anthropic Claude** (`ANTHROPIC_API_KEY`, modèle `claude-haiku-4-5`)
-- **OpenAI** (`OPENAI_API_KEY`, modèle `gpt-4o-mini`)
-- **Ollama** (local, `OLLAMA_HOST`) — interface implémentée, actuellement `[untested]`, en attente de validation sur GPU
-
-Pour activer :
+Si vous vous souvenez du UUID de session (depuis `~/.claude/projects/`, ou copié d'un log précédent) :
 
 ```bash
-export DEEPSEEK_API_KEY=sk-...   # à ajouter dans ~/.bashrc pour la persistance
-./install.sh                     # relancer ; il détecte la clé et propose l'opt-in
+cd ~/dev/<votre-projet>
+vibe work
+vibe run --resume <session-uuid>
+```
+
+Si vous ne vous souvenez pas mais que c'est la session la plus récente sur ce projet :
+
+```bash
+vibe work
+vibe run --mode continue                    # équivalent à `claude --continue` + reprise auto sur rate limit
+```
+
+Pour lister les candidats, regardez les noms de fichier JSONL :
+
+```bash
+ls -t ~/.claude/projects/$(pwd | sed 's|/|-|g')/*.jsonl | head -5
+# le nom de fichier moins `.jsonl` est le UUID de session
+```
+
+### 3. Je travaille en SSH et la connexion tombe
+
+C'est la raison d'être de `vibe work`. La session tmux est le vrai propriétaire du process — votre connexion SSH n'est qu'une fenêtre dessus. SSH tombe, la session continue. Reconnectez-vous plus tard, relancez `vibe work`, et vous retrouvez tout exactement où vous l'aviez laissé, tâche en cours, scrollback inclus. Si un rate limit est tombé pendant votre absence, le wrapper l'a déjà géré.
+
+Pour vérifier l'avancement sans attacher :
+
+```bash
+ssh vous@server "tmux list-sessions"               # vos sessions vibe-* en vie
+ssh vous@server "tmux capture-pane -t vibe-default -p | tail -50"   # jeter un œil sans rejoindre
+```
+
+---
+
+## Optionnel : détection LLM plus intelligente
+
+L1 (parsing JSONL) et L2 (regex sur le pane) couvrent les rate limits courants sans appel externe. Pour gérer les changements de wording du TUI et extraire les heures de reset que la regex manque, activez L3 :
+
+```bash
+echo 'DEEPSEEK_API_KEY=sk-...' >> ~/.config/vibe/env   # chmod 600, créé par l'installeur
+chmod 600 ~/.config/vibe/env
 source ~/.bashrc
 ```
 
-**Note de confidentialité** : quand L3 est activé, les ~30 dernières lignes de votre pane tmux (queue de conversation, previews de fichiers) sont envoyées au provider choisi pour classification. Une redaction basique des secrets (`sk-*`, `Bearer *`, `*_SECRET=*`, base64 long) est activée par défaut, mais **pas** une garantie. N'activez pas L3 sur un pane qui contient des données que vous ne colleriez pas dans l'UI de chat du provider. Refuser l'opt-in maintient le mode L1+L2 même si une clé est présente.
+Providers supportés : **DeepSeek** (le moins cher, ~0,05 $/bloc), **Anthropic Claude Haiku**, **OpenAI gpt-4o-mini**, **Ollama** (local, `[untested]` — en attente de validation GPU).
 
-## Comment fonctionne la détection (TL;DR)
+**Confidentialité** : avec L3 activé, les ~30 dernières lignes du pane (queue de conversation + previews de fichiers visibles) sont envoyées au provider choisi pour un seul appel de classification par event de limite. La redaction basique des secrets (`sk-*`, `Bearer *`, `*_SECRET=*`, base64 long) est activée par défaut mais n'est pas une garantie. Refusez l'opt-in (ou `vibe run --no-l3`) pour rester 100 % local.
 
-Les trois couches tournent dans l'ordre. **L1** sait en continu combien du block de 5 heures a été consommé en sommant `message.usage.{input,output,cache_read}_tokens` sur les fichiers JSONL du projet courant ; c'est ce qui pilote le refus pre-flight au soft cap. **L2** lance `tmux capture-pane` à la sortie et grep la queue contre les chaînes verbatim de rate limit (`5-hour limit reached ∙ resets ...`, `weekly limit reached`, `Approaching 5-hour limit`) et extrait l'heure de reset. **L3** (si opt-in) envoie cette même queue à un LLM et reçoit en retour un JSON structuré `{status, reset_time, idle, modal_open}` pour les cas que L2 ne sait pas parser.
+---
 
-Voir [`docs/architecture.md`](docs/architecture.md) et [`docs/design/001-three-layer-detection.md`](docs/design/001-three-layer-detection.md) pour la justification complète.
+## Ce qui se passe sous le capot
 
-## Variables d'environnement
+Quand `claude` sort, `vibe run` lance trois checks dans l'ordre :
+
+- **L1** somme `message.usage.{input,output,cache_read}_tokens` sur les fichiers JSONL du projet courant pour savoir combien du bloc 5 h est consommé et quand il se reset.
+- **L2** lance `tmux capture-pane` et grep la queue contre les chaînes verbatim du TUI (`5-hour limit reached ∙ resets …`, `weekly limit reached`, `Approaching 5-hour limit`, plus la nouvelle modale « Stop and wait for limit to reset »). Il extrait l'heure de reset.
+- **L3** (opt-in) envoie la même queue à un LLM et reçoit `{status, reset_time, idle, modal_open}` pour les cas que L2 ne sait pas parser.
+
+Quand `claude` sort proprement ou sur une vraie erreur (crash, MCP failure, /exit), le wrapper sort avec le même code — il ne retente **pas** aveuglément. La reprise auto ne démarre que sur un signal de rate limit positivement détecté. Voir [`docs/architecture.md`](docs/architecture.md) et [`docs/design/001-three-layer-detection.md`](docs/design/001-three-layer-detection.md).
+
+## Flags CLI
+
+```
+vibe run [...args]
+  --resume <uuid>          reprendre une session spécifique (utilisé pour tous les cycles)
+  --threshold <0..1>       plafond souple opt-in (off par défaut — brûle le bloc)
+  --max-cycles <n>         cycles de reprise par invocation (0 = illimité, défaut 1)
+  --mode auto|session-id|continue
+  --provider deepseek|claude|openai|ollama
+  --no-l3                  force L1+L2 seulement
+  --dangerously-skip-permissions
+  -p "prompt"
+  ... tous les autres flags passent à claude tels quels
+```
+
+## Variables d'environnement (principales)
 
 | Variable | Défaut | Rôle |
 |---|---|---|
-| `CC_LLM_PROVIDER` | auto-détection, ou `none` | Choisit le provider L3 (`deepseek` / `claude` / `openai` / `ollama` / `none`). `none` force L1+L2 même si des clés sont présentes. |
-| `CC_USAGE_THRESHOLD` | `0.75` | Fraction du soft cap. Pre-flight refuse de lancer une nouvelle query au-dessus. |
-| `CC_RESUME_MODE` | `auto` | `auto` = `--resume <sid>` puis fallback `--continue`. `session-id` = UUID strict. `continue` = toujours `--continue`. |
-| `CC_RESUME_MAX_CYCLES` | `1` | Nombre de cycles de reprise auto par invocation du wrapper (`0` = illimité). |
-| `CC_COMPACTION_CHOICE` | `keep` | Sur le rare prompt de compaction (contexte trop large) après reprise : `keep` (contexte complet) ou `compact` (laisse Claude résumer). |
+| `CC_LLM_PROVIDER` | auto-détection | `deepseek` / `claude` / `openai` / `ollama` / `none` |
+| `CC_USAGE_THRESHOLD` | _absent_ (off) | Plafond souple opt-in (ex. `0.80`) pour réserver du budget |
+| `CC_RESUME_MODE` | `auto` | `auto` / `session-id` (UUID strict) / `continue` |
+| `CC_RESUME_MAX_CYCLES` | `1` | `0` = cycles de reprise illimités par invocation |
+| `CC_SLEEP_PAD` | `60` | Secondes ajoutées à l'heure de reset avant relance |
 
-Les autres réglages moins courants (`CC_SLEEP_PAD`, `CC_LLM_REDACT`, `CC_PANE_TAIL_LINES`, `CC_PEAK_FALLBACK`, `CC_SESSION_FILE`, `CC_LLM_MODEL`) sont documentés en tête de `bin/vibe-run`.
+Les autres réglages (`CC_LLM_REDACT`, `CC_PANE_TAIL_LINES`, `CC_MODAL_POLL_INTERVAL`, …) sont documentés en tête de `bin/vibe-run`.
+
+## Multi-session
+
+`vibe work <name>` crée une session tmux + un répertoire d'état isolés. Utile pour faire tourner plusieurs tâches Claude en parallèle :
+
+```bash
+vibe work feature-a    # session tmux "vibe-feature-a"
+# Ctrl+b d, puis dans un autre shell :
+vibe work bugfix       # session tmux "vibe-bugfix", cache UUID séparé
+```
+
+`vibe work` sans nom utilise un nom déterministe-aléatoire dérivé du hash du cwd — revenir au même projet retombe toujours sur la même session.
 
 ## Contribuer
 
-Lisez [`AGENTS.md`](AGENTS.md) d'abord — c'est le point d'entrée unique pour les contributeurs. Ce projet suit un **workflow spec-first** : chaque feature commence par un design doc `docs/design/00X-<name>.md` (template dans [`docs/design/README.md`](docs/design/README.md)) revu avant qu'une ligne de code soit écrite. Les bug fixes et petits tweaks peuvent partir directement en PR.
+Lisez [`AGENTS.md`](AGENTS.md) d'abord — le point d'entrée unique. Le projet suit un **workflow spec-first** : chaque feature commence par un design doc `docs/design/00X-<name>.md` ([template](docs/design/README.md)) revu avant code.
 
-Les nouveaux patterns TUI sont particulièrement bienvenus : si Claude Code émet un jour un message de rate limit ou de modal qu'on ne matche pas encore, collez-le verbatim dans `tests/fixtures/<name>.txt` et ouvrez une PR.
+Si Claude Code montre un jour un message de rate limit ou de modal qu'on ne matche pas, collez-le verbatim dans `tests/fixtures/<name>.txt` et ouvrez une PR.
 
 ## Licence
 

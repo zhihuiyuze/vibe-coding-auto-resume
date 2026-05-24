@@ -77,6 +77,15 @@ h2 {
   margin-top: 0.25rem;
 }
 
+.langs {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin: 0.75rem 0 0;
+}
+.langs a { color: var(--muted); text-decoration: none; border-bottom: 1px dashed var(--muted); }
+.langs a:hover { color: var(--accent); border-bottom-color: var(--accent); }
+.langs strong { color: var(--fg); }
+
 nav {
   display: flex;
   gap: 1.25rem;

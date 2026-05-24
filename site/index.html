@@ -3,21 +3,64 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#fdfdfc" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1a1a1a" media="(prefers-color-scheme: dark)">
+
   <title>vibe-coding-auto-resume — auto-resume Claude Code after rate limits</title>
-  <meta name="description" content="Auto-resume Claude Code CLI after rate-limit resets. Claude Code 自动恢复. Reprise automatique Claude Code. Автовозобновление Claude Code. tmux + JSONL + optional LLM detection.">
-  <link rel="stylesheet" href="style.css">
+  <meta name="description" content="Wraps the Claude Code CLI inside tmux, sleeps until the rate-limit resets, then resumes the same session. Zero-dep core; optional LLM for nuanced detection.">
+
+  <link rel="canonical" href="https://vibe-resume.huize.org/">
+  <link rel="alternate" hreflang="en"        href="https://vibe-resume.huize.org/">
+  <link rel="alternate" hreflang="zh"        href="https://vibe-resume.huize.org/zh/">
+  <link rel="alternate" hreflang="fr"        href="https://vibe-resume.huize.org/fr/">
+  <link rel="alternate" hreflang="ru"        href="https://vibe-resume.huize.org/ru/">
+  <link rel="alternate" hreflang="x-default" href="https://vibe-resume.huize.org/">
+
+  <meta property="og:type"           content="website">
+  <meta property="og:site_name"      content="vibe-coding-auto-resume">
+  <meta property="og:title"          content="vibe-coding-auto-resume — auto-resume Claude Code after rate limits">
+  <meta property="og:description"    content="Wraps the Claude Code CLI inside tmux, sleeps until the rate-limit resets, then resumes the same session.">
+  <meta property="og:url"            content="https://vibe-resume.huize.org/">
+  <meta property="og:locale"         content="en_US">
+  <meta property="og:locale:alternate" content="zh_CN">
+  <meta property="og:locale:alternate" content="fr_FR">
+  <meta property="og:locale:alternate" content="ru_RU">
+
+  <meta name="twitter:card"        content="summary">
+  <meta name="twitter:title"       content="vibe-coding-auto-resume">
+  <meta name="twitter:description" content="Auto-resume Claude Code after rate-limit resets. tmux + JSONL + optional LLM.">
+
+  <link rel="stylesheet" href="/style.css">
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "vibe-coding-auto-resume",
+    "description": "Auto-resume Claude Code CLI after rate-limit resets. tmux + JSONL parsing + optional LLM detection.",
+    "url": "https://vibe-resume.huize.org/",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "Linux, macOS",
+    "license": "https://opensource.org/licenses/MIT",
+    "codeRepository": "https://github.com/zhihuiyuze/vibe-coding-auto-resume",
+    "programmingLanguage": "Shell",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "inLanguage": ["en", "zh", "fr", "ru"]
+  }
+  </script>
 </head>
 <body>
 
 <header>
   <h1>vibe-coding-auto-resume</h1>
-  <p class="tagline">Auto-resume <code>claude</code> after rate-limit resets. <span class="alt">Claude Code 自动恢复 · Reprise automatique · Автовозобновление</span></p>
+  <p class="tagline">Auto-resume <code>claude</code> after rate-limit resets.</p>
   <nav>
     <a href="#install">Install</a>
     <a href="#how">How it works</a>
     <a href="#flags">CLI</a>
     <a href="https://github.com/zhihuiyuze/vibe-coding-auto-resume">Source</a>
   </nav>
+  <p class="langs"><strong>English</strong> · <a href="/zh/">中文</a> · <a href="/fr/">Français</a> · <a href="/ru/">Русский</a></p>
 </header>
 
 <main>
@@ -33,6 +76,7 @@
     <li>Wraps <code>claude</code> so it survives the 5-hour block: sleep until reset, then resume the same session UUID.</li>
     <li>Runs inside a named tmux session so SSH drops don't matter.</li>
     <li>Three-layer detection (deterministic-first, LLM optional &amp; opt-in).</li>
+    <li>Handles the new interactive limit-hit modal automatically (picks the safe "Stop and wait" option).</li>
     <li>Multi-session: <code>vibe work feature-a</code> &amp; <code>vibe work bugfix</code> live side-by-side, isolated state.</li>
     <li>Zero core runtime deps beyond <code>bash</code>, <code>jq</code>, <code>curl</code>, <code>tmux</code>. No npm, no pip.</li>
   </ul>
@@ -96,6 +140,7 @@ vibe status                                     # check current block usage</cod
     <li>Source your project's <code>.env</code> / <code>.env.local</code>. Tool credentials live in <code>~/.config/vibe/env</code>; project env is yours.</li>
     <li>Run <code>sudo</code>. The installer prints the one or two commands that need it and stops.</li>
     <li>Send anything off-machine when L3 is disabled (the default until you add a key).</li>
+    <li>Auto-pick paid options on the limit-hit modal. Only "Stop and wait" — never "Switch to usage credits" or "Upgrade your plan".</li>
   </ul>
 </section>
 
@@ -105,7 +150,6 @@ vibe status                                     # check current block usage</cod
     <li><a href="https://github.com/zhihuiyuze/vibe-coding-auto-resume/blob/main/AGENTS.md">AGENTS.md</a> — architecture, contributor guide, spec-first workflow.</li>
     <li><a href="https://github.com/zhihuiyuze/vibe-coding-auto-resume/blob/main/docs/architecture.md">docs/architecture.md</a> — full data flow diagram.</li>
     <li><a href="https://github.com/zhihuiyuze/vibe-coding-auto-resume/tree/main/docs/design">docs/design/</a> — one accepted design doc per feature.</li>
-    <li><a href="https://github.com/zhihuiyuze/vibe-coding-auto-resume/blob/main/README.zh.md">中文</a> · <a href="https://github.com/zhihuiyuze/vibe-coding-auto-resume/blob/main/README.fr.md">Français</a> · <a href="https://github.com/zhihuiyuze/vibe-coding-auto-resume/blob/main/README.ru.md">Русский</a></li>
   </ul>
 </section>
 
@@ -113,6 +157,7 @@ vibe status                                     # check current block usage</cod
 
 <footer>
   <p>MIT license. Source on <a href="https://github.com/zhihuiyuze/vibe-coding-auto-resume">GitHub</a>.</p>
+  <p class="langs"><strong>English</strong> · <a href="/zh/">中文</a> · <a href="/fr/">Français</a> · <a href="/ru/">Русский</a></p>
 </footer>
 
 </body>
