@@ -113,11 +113,19 @@ vibe run --resume &lt;session-uuid&gt;</code></pre>
 <pre><code>ls -t ~/.claude/projects/$(pwd | sed 's|/|-|g')/*.jsonl | head -5
 # имя файла без `.jsonl` = session UUID</code></pre>
 
-  <h3>3. Работаю по SSH, соединение рвётся</h3>
-  <p>tmux-сессия — настоящий владелец процесса; SSH-соединение лишь окно в неё. SSH упал, сессия продолжает работать. Подключаетесь позже, запускаете <code>vibe work</code>, и попадаете ровно туда, где остановились — задача в процессе, scrollback, всё. Любой rate-limit за это время уже обработан.</p>
-  <p>Подсмотреть, не заходя:</p>
-<pre><code>ssh you@server "tmux list-sessions"
-ssh you@server "tmux capture-pane -t vibe-default -p | tail -50"</code></pre>
+  <h3>3. SSH оборвался — как убедиться, что задача жива, и вернуться к ней</h3>
+  <p>tmux держит процесс, а не ваш shell. SSH умер, сессия жива. Пошагово:</p>
+<pre><code>ssh you@server                              # 1. переподключаемся
+tmux ls                                     # 2. жива ли ваша vibe-* сессия?
+                                            #    ожидается, например: "vibe-default: 1 windows (...)"
+vibe work                                   # 3. реаттач (или `vibe work &lt;name&gt;` если имя задавали)
+                                            #    попадаете ровно туда, где остановились</code></pre>
+  <p>После реаттача — посмотреть, что произошло без вас: <code>Ctrl+b [</code>, далее PageUp / стрелки, <code>q</code> для выхода. Если за это время был rate limit, wrapper уже обработал — увидите <code>[vibe-run] Sleeping … until …</code> и возобновление в scrollback.</p>
+  <p>Подсмотреть без аттача (с другой машины, просто проверить статус):</p>
+<pre><code>ssh you@server "tmux ls"
+ssh you@server "tmux capture-pane -t vibe-default -p | tail -50"
+ssh you@server "vibe status"</code></pre>
+  <p>Если <code>tmux ls</code> отвечает <code>no server running</code>, машина перезагрузилась или tmux был OOM-killed. tmux-сессия потеряна, но JSONL-история Claude — нет. Используйте сценарий 2 выше, чтобы продолжить.</p>
 </section>
 
 <section id="llm">

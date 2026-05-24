@@ -113,11 +113,19 @@ vibe run --resume &lt;session-uuid&gt;</code></pre>
 <pre><code>ls -t ~/.claude/projects/$(pwd | sed 's|/|-|g')/*.jsonl | head -5
 # nom de fichier moins `.jsonl` = UUID de session</code></pre>
 
-  <h3>3. Je travaille en SSH et la connexion tombe</h3>
-  <p>La session tmux est le vrai propriétaire du process — votre connexion SSH n'est qu'une fenêtre dessus. SSH tombe, la session continue. Reconnectez-vous plus tard, relancez <code>vibe work</code>, et vous retrouvez tout exactement où vous l'aviez laissé, tâche en cours, scrollback inclus. Tout rate limit pendant votre absence a déjà été géré.</p>
-  <p>Jeter un œil sans attacher :</p>
-<pre><code>ssh vous@server "tmux list-sessions"
-ssh vous@server "tmux capture-pane -t vibe-default -p | tail -50"</code></pre>
+  <h3>3. SSH a sauté — comment vérifier que ça tourne encore et y revenir</h3>
+  <p>tmux possède le process, pas votre shell. SSH meurt, la session vit. Étape par étape :</p>
+<pre><code>ssh vous@server                             # 1. reconnexion
+tmux ls                                     # 2. la session vibe-* est-elle toujours là ?
+                                            #    attendu : ex. "vibe-default: 1 windows (...)"
+vibe work                                   # 3. rattacher (ou `vibe work &lt;name&gt;` si nommée)
+                                            #    vous atterrissez exactement où vous étiez</code></pre>
+  <p>Une fois rattaché, scrollback pour voir ce qui s'est passé pendant votre absence : <code>Ctrl+b [</code>, puis PageUp / flèches, <code>q</code> pour sortir. Si un rate limit est tombé, le wrapper l'a géré — vous verrez <code>[vibe-run] Sleeping … until …</code> et la reprise dans le scrollback.</p>
+  <p>Jeter un œil sans rattacher (depuis une autre machine, juste un check) :</p>
+<pre><code>ssh vous@server "tmux ls"
+ssh vous@server "tmux capture-pane -t vibe-default -p | tail -50"
+ssh vous@server "vibe status"</code></pre>
+  <p>Si <code>tmux ls</code> répond <code>no server running</code>, la machine a redémarré ou tmux s'est fait OOM-killer. La session tmux est perdue mais le log JSONL de Claude non — utilisez le scénario 2 ci-dessus pour reprendre.</p>
 </section>
 
 <section id="llm">

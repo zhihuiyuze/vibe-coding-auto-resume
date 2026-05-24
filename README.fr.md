@@ -56,16 +56,29 @@ ls -t ~/.claude/projects/$(pwd | sed 's|/|-|g')/*.jsonl | head -5
 # le nom de fichier moins `.jsonl` est le UUID de session
 ```
 
-### 3. Je travaille en SSH et la connexion tombe
+### 3. SSH a sauté — comment vérifier que ça tourne encore et y revenir
 
-C'est la raison d'être de `vibe work`. La session tmux est le vrai propriétaire du process — votre connexion SSH n'est qu'une fenêtre dessus. SSH tombe, la session continue. Reconnectez-vous plus tard, relancez `vibe work`, et vous retrouvez tout exactement où vous l'aviez laissé, tâche en cours, scrollback inclus. Si un rate limit est tombé pendant votre absence, le wrapper l'a déjà géré.
-
-Pour vérifier l'avancement sans attacher :
+La session tmux est le vrai propriétaire du process — `claude` est tenu par tmux, pas par votre shell. SSH meurt, la session vit. Étape par étape :
 
 ```bash
-ssh vous@server "tmux list-sessions"               # vos sessions vibe-* en vie
-ssh vous@server "tmux capture-pane -t vibe-default -p | tail -50"   # jeter un œil sans rejoindre
+ssh vous@server                             # 1. reconnexion
+tmux ls                                     # 2. votre session vibe-* est-elle toujours là ?
+                                            #    attendu : ex. "vibe-default: 1 windows (...)"
+vibe work                                   # 3. rattacher (ou `vibe work <name>` si nommée)
+                                            #    vous atterrissez exactement où vous étiez
 ```
+
+Une fois rattaché, scrollback pour voir ce qui s'est passé pendant votre absence : `Ctrl+b [`, puis PageUp / flèches, `q` pour sortir. Si un rate limit est tombé entre-temps, le wrapper l'a géré — vous verrez les entrées `[vibe-run] Sleeping … until …` et la reprise.
+
+**Jeter un œil sans rattacher** (depuis une autre machine, juste un check) :
+
+```bash
+ssh vous@server "tmux ls"                                              # ce qui est vivant
+ssh vous@server "tmux capture-pane -t vibe-default -p | tail -50"      # 50 dernières lignes du pane
+ssh vous@server "vibe status"                                          # usage du bloc courant
+```
+
+**Si `tmux ls` répond `no server running`** — la machine a redémarré, ou tmux s'est fait OOM-killer. La session tmux est perdue, mais l'historique JSONL de Claude non. Reprenez via le scénario 2 ci-dessus (`vibe run --resume <uuid>` ou `vibe run --mode continue`).
 
 ---
 

@@ -113,11 +113,19 @@ vibe run --resume &lt;session-uuid&gt;</code></pre>
 <pre><code>ls -t ~/.claude/projects/$(pwd | sed 's|/|-|g')/*.jsonl | head -5
 # filename minus `.jsonl` = session UUID</code></pre>
 
-  <h3>3. I'm working over SSH and the connection drops</h3>
-  <p>The tmux session is the real process owner — your SSH connection is just a window into it. Drop SSH, the session keeps running. Reconnect later, run <code>vibe work</code> again, and you're back exactly where you left off, mid-task, scrollback and all. Any rate-limit hit during your absence was already handled.</p>
-  <p>Peek without attaching:</p>
-<pre><code>ssh you@server "tmux list-sessions"
-ssh you@server "tmux capture-pane -t vibe-default -p | tail -50"</code></pre>
+  <h3>3. SSH dropped — how do I check it's still running and reconnect?</h3>
+  <p>tmux owns the process, your shell does not. SSH dies, the session lives. Step-by-step:</p>
+<pre><code>ssh you@server                              # 1. reconnect
+tmux ls                                     # 2. is the vibe-* session still there?
+                                            #    expected: e.g. "vibe-default: 1 windows (...)"
+vibe work                                   # 3. re-attach (or `vibe work &lt;name&gt;` if you named it)
+                                            #    you land exactly where you left off</code></pre>
+  <p>Once back in, scroll up to see what happened while you were gone: <code>Ctrl+b [</code>, then PageUp / arrows, <code>q</code> to exit. If a rate limit hit, the wrapper already handled it — you'll see <code>[vibe-run] Sleeping … until …</code> and the resume in scrollback.</p>
+  <p>Peek without attaching (e.g. from another machine, just checking status):</p>
+<pre><code>ssh you@server "tmux ls"
+ssh you@server "tmux capture-pane -t vibe-default -p | tail -50"
+ssh you@server "vibe status"</code></pre>
+  <p>If <code>tmux ls</code> says <code>no server running</code>, the host rebooted or tmux was OOM-killed. The tmux session is gone but Claude's JSONL log isn't — use Scenario 2 above to resume.</p>
 </section>
 
 <section id="llm">

@@ -56,16 +56,29 @@ ls -t ~/.claude/projects/$(pwd | sed 's|/|-|g')/*.jsonl | head -5
 # 文件名去掉 .jsonl 就是 session UUID
 ```
 
-### 3. 我在 SSH 上干活，连接动不动就掉
+### 3. SSH 断了之后怎么确认还在跑、怎么重连恢复
 
-`vibe work` 存在的根本原因就是这个。tmux session 才是进程的真正归属，SSH 连接只是一个看进去的窗口。SSH 掉了 session 还在跑。重连后再跑一次 `vibe work` 就能回到原现场——任务进行中、scrollback、所有上下文都在。中间真的 hit 了 limit，wrapper 已经替你处理完了。
-
-不想 attach，只想远程偷瞄一下进度：
+tmux session 才是进程的真正归属——`claude` 是被 tmux 拽着的，跟你的 shell 无关。SSH 死了 session 不会死。逐步操作：
 
 ```bash
-ssh you@server "tmux list-sessions"               # 看你还活着的 vibe-* sessions
-ssh you@server "tmux capture-pane -t vibe-default -p | tail -50"   # 不进入直接看 pane 尾巴
+ssh you@server                              # 1. 重新连上
+tmux ls                                     # 2. 看 vibe-* session 还在不在
+                                            #    正常应输出类似 "vibe-default: 1 windows (...)"
+vibe work                                   # 3. 重新 attach（用了自定义名字就 `vibe work <name>`）
+                                            #    一进去就是离开时的现场
 ```
+
+attach 后想看你走开这段时间发生了什么：`Ctrl+b [` 进入翻页模式，PageUp / 方向键往上翻，`q` 退出。如果中间真 hit 了 limit，wrapper 已经替你处理过了——会看到 `[vibe-run] Sleeping … until …` 和恢复运行的日志。
+
+**不 attach 只想偷瞄一眼**（比如换台机器看看状态）：
+
+```bash
+ssh you@server "tmux ls"                                              # 看什么 session 还活着
+ssh you@server "tmux capture-pane -t vibe-default -p | tail -50"      # 抓 pane 末尾 50 行
+ssh you@server "vibe status"                                          # 当前 block 用量
+```
+
+**如果 `tmux ls` 输出 `no server running`** —— 通常是机器重启了，或 tmux 被 OOM kill 了。tmux session 没了，但 Claude 的 JSONL 历史还在。走上面场景 2（`vibe run --resume <uuid>` 或 `vibe run --mode continue`）从原 session 续接即可。
 
 ---
 

@@ -56,16 +56,29 @@ ls -t ~/.claude/projects/$(pwd | sed 's|/|-|g')/*.jsonl | head -5
 # имя файла без `.jsonl` — это session UUID
 ```
 
-### 3. Работаю по SSH, соединение рвётся
+### 3. SSH оборвался — как убедиться, что задача жива, и вернуться к ней
 
-Это и есть основная причина существования `vibe work`. tmux-сессия — настоящий владелец процесса; SSH-соединение — лишь окно в неё. SSH упал, сессия продолжает работать. Подключаетесь позже, запускаете `vibe work`, и попадаете ровно туда, где остановились — задача в процессе, scrollback, всё. Если за это время был лимит, wrapper уже его обработал.
-
-Глянуть прогресс без аттача:
+tmux-сессия — настоящий владелец процесса; `claude` держит tmux, а не ваш shell. SSH умер, сессия живёт. Пошагово:
 
 ```bash
-ssh you@server "tmux list-sessions"               # ваши живые vibe-* сессии
-ssh you@server "tmux capture-pane -t vibe-default -p | tail -50"   # подсмотреть, не заходя
+ssh you@server                              # 1. переподключаемся
+tmux ls                                     # 2. жива ли ваша vibe-* сессия?
+                                            #    ожидается, например: "vibe-default: 1 windows (...)"
+vibe work                                   # 3. реаттач (или `vibe work <name>` если имя задавали)
+                                            #    попадаете ровно туда, где остановились
 ```
+
+После реаттача — посмотреть, что произошло без вас: `Ctrl+b [`, далее PageUp / стрелки, `q` для выхода из scrollback. Если за это время был rate limit, wrapper уже обработал — увидите записи `[vibe-run] Sleeping … until …` и возобновление.
+
+**Подсмотреть, не аттачась** (например, с другой машины — просто статус):
+
+```bash
+ssh you@server "tmux ls"                                              # что живо
+ssh you@server "tmux capture-pane -t vibe-default -p | tail -50"      # последние 50 строк pane
+ssh you@server "vibe status"                                          # текущая утилизация блока
+```
+
+**Если `tmux ls` отвечает `no server running`** — машина перезагрузилась или tmux был OOM-killed. tmux-сессия потеряна, но JSONL-история Claude — нет. Используйте сценарий 2 выше (`vibe run --resume <uuid>` или `vibe run --mode continue`) чтобы продолжить.
 
 ---
 

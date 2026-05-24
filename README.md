@@ -58,14 +58,27 @@ ls -t ~/.claude/projects/$(pwd | sed 's|/|-|g')/*.jsonl | head -5
 
 ### 3. I'm working over SSH and the connection drops
 
-This is the default reason `vibe work` exists. The tmux session is the process owner — your SSH connection is just a window into it. Drop the SSH, the session keeps running. Reconnect later, run `vibe work` again, and you're back exactly where you left off, mid-task, scrollback and all. If a rate limit hit during your absence, the wrapper already handled it.
-
-To check progress without attaching:
+The tmux session keeps running even after SSH dies — your `claude` process is owned by tmux, not by your shell. Step-by-step recovery:
 
 ```bash
-ssh you@server "tmux list-sessions"               # see your live vibe-* sessions
-ssh you@server "tmux capture-pane -t vibe-default -p | tail -50"   # peek without joining
+ssh you@server                              # 1. reconnect
+tmux ls                                     # 2. is your vibe-* session still alive?
+                                            #    expected: e.g. "vibe-default: 1 windows (...)"
+vibe work                                   # 3. re-attach (or `vibe work <name>` if you used a name)
+                                            #    you land exactly where you left off
 ```
+
+Once re-attached, scroll up to see what happened during your absence: `Ctrl+b [`, then PageUp / arrows, `q` to exit scrollback. If a rate limit hit while you were gone, the wrapper already handled it — you'll see the `[vibe-run] Sleeping … until …` and resume entries.
+
+**Peek without attaching** (e.g. from another machine, just checking status):
+
+```bash
+ssh you@server "tmux ls"                                              # what's alive
+ssh you@server "tmux capture-pane -t vibe-default -p | tail -50"      # last 50 pane lines
+ssh you@server "vibe status"                                          # current block usage
+```
+
+**If `tmux ls` says `no server running`** — the host rebooted, or tmux was OOM-killed. The tmux session is gone, but Claude's JSONL history isn't. Use Scenario 2 above (`vibe run --resume <uuid>` or `vibe run --mode continue`) to pick up where you left off.
 
 ---
 
