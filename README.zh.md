@@ -82,6 +82,29 @@ ssh you@server "vibe status"                                          # 当前 b
 
 ---
 
+## 发现 & 管理会话
+
+`vibe ls` 列出所有 `vibe-*` tmux session，附 cwd、是否 attached、`← here` 标记（如果该 session 的 cwd 跟你当前 cwd 一致）：
+
+```
+$ vibe ls
+  vibe-boldfox              /home/u/dev/projectA  ← here  [attached]
+  vibe-feature-x            /home/u/dev/projectA  ← here
+  vibe-quietowl             /home/u/dev/scratch
+```
+
+`vibe work` 不带参数时，现在会先查 cwd 是否已有匹配的 session，再决定行为：
+
+- **0 个匹配** → 新建（用 cwd 哈希命名）
+- **1 个匹配** → 直接 attach，不问
+- **N 个匹配** → 交互式 picker（输 `1..N` 选，`n` 新建）
+
+显式 `vibe work <name>` 跳过 discovery，名字优先。
+
+**命名建议**：经常用的项目给个显式名字（`vibe work projectA`）而不是依赖 cwd 哈希。这样路径改名/换符号链都不会漂到新 session，在 `vibe ls` 里也好认。
+
+---
+
 ## 可选：开 LLM 增强检测
 
 L1（JSONL 解析）和 L2（tmux pane regex）在常见 rate limit 场景下零外发就够用。想更稳地应对 TUI 文案变化、抽 L2 regex 抓不到的 reset 时间，可以 opt-in L3：

@@ -57,6 +57,7 @@
   <nav>
     <a href="#install">安装</a>
     <a href="#scenarios">使用场景</a>
+    <a href="#ls">会话管理</a>
     <a href="#how">工作原理</a>
     <a href="#flags">CLI 参数</a>
     <a href="https://github.com/zhihuiyuze/vibe-coding-auto-resume">源码</a>
@@ -126,6 +127,22 @@ vibe work                                   # 3. 重新 attach（用了自定义
 ssh you@server "tmux capture-pane -t vibe-default -p | tail -50"
 ssh you@server "vibe status"</code></pre>
   <p>如果 <code>tmux ls</code> 输出 <code>no server running</code>，通常是机器重启或 tmux 被 OOM kill 了。tmux session 没了，但 Claude 的 JSONL 历史还在 — 走上面的场景 2 续接即可。</p>
+</section>
+
+<section id="ls">
+  <h2>发现 &amp; 管理会话</h2>
+  <p><code>vibe ls</code> 列出所有 <code>vibe-*</code> tmux session，附 cwd、是否 attached、<code>← here</code> 标记（如果 cwd 跟你当前一致）：</p>
+<pre><code>$ vibe ls
+  vibe-boldfox              /home/u/dev/projectA  ← here  [attached]
+  vibe-feature-x            /home/u/dev/projectA  ← here
+  vibe-quietowl             /home/u/dev/scratch</code></pre>
+  <p><code>vibe work</code> 不带参数时，现在会先 discovery 再决定：</p>
+  <ul>
+    <li><strong>0 个匹配</strong> → 新建（cwd 哈希命名）。</li>
+    <li><strong>1 个匹配</strong> → 直接 attach，不问。</li>
+    <li><strong>N 个匹配</strong> → 交互式 picker（输 <code>1..N</code> 选，<code>n</code> 新建）。</li>
+  </ul>
+  <p>显式 <code>vibe work &lt;name&gt;</code> 跳过 discovery，名字优先。**经常用的项目**给个显式名字（<code>vibe work projectA</code>）—— 路径改名/换符号链不会漂到新 session，在 <code>vibe ls</code> 里也好认。</p>
 </section>
 
 <section id="llm">

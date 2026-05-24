@@ -26,6 +26,7 @@ This directory holds **one design doc per feature**. Design docs are the source 
 | 008 | [Post-resume compaction handling](008-post-resume-compaction.md) | accepted | v1 |
 | 009 | [Agent adapter pattern (Codex/Aider/...)](009-agent-adapters.md) | draft | future |
 | 010 | [Interactive limit-hit modal handler](010-limit-modal-handler.md) | accepted | v1 |
+| 011 | [Session discovery (`vibe ls`) + smart `vibe work`](011-session-picker.md) | accepted | v1 |
 
 ## Template
 

@@ -457,6 +457,92 @@ STUB
 fi
 
 ###############################################################################
+section "shell/vibe.bash — _vibe_sessions_matching_cwd (stubbed tmux)"
+###############################################################################
+
+# Shim a fake `tmux` on PATH that returns canned list-sessions and
+# display-message output, then exercise _vibe_sessions_matching_cwd.
+# Each case writes its expected fake-tmux output into a file the shim reads.
+_VIBE_SH="$_REPO_DIR/shell/vibe.bash"
+
+cat > "$_TMP_BIN/tmux" <<'TSHIM'
+#!/usr/bin/env bash
+# Fake tmux for smoke tests. Reads canned output from $TMUX_FAKE_FILE
+# based on the first arg + subcommand.
+set -e
+case "$1" in
+  list-sessions)
+    # echo names (one per line) from $TMUX_FAKE_SESSIONS
+    [[ -n "${TMUX_FAKE_SESSIONS:-}" ]] && printf '%s\n' $TMUX_FAKE_SESSIONS
+    exit 0
+    ;;
+  display-message)
+    # last arg is target spec like "-t name". We look up $TMUX_FAKE_CWD_<name>.
+    target=""
+    for a in "$@"; do
+      [[ "$prev" == "-t" ]] && target="$a"
+      prev="$a"
+    done
+    # printf (not echo) to avoid trailing newline corrupting the var name
+    var="TMUX_FAKE_CWD_$(printf '%s' "$target" | tr -c 'A-Za-z0-9' '_')"
+    eval "printf '%s\n' \"\${$var:-}\""
+    exit 0
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+TSHIM
+chmod +x "$_TMP_BIN/tmux"
+
+run_match() {
+  local target="$1"
+  env -i HOME="$HOME" PATH="$_TMP_BIN:$PATH" VIBE_HOME="$_REPO_DIR" \
+      TMUX_FAKE_SESSIONS="${TMUX_FAKE_SESSIONS:-}" \
+      TMUX_FAKE_CWD_vibe_boldfox="${TMUX_FAKE_CWD_vibe_boldfox:-}" \
+      TMUX_FAKE_CWD_vibe_featurex="${TMUX_FAKE_CWD_vibe_featurex:-}" \
+      TMUX_FAKE_CWD_vibe_quietowl="${TMUX_FAKE_CWD_vibe_quietowl:-}" \
+      TMUX_FAKE_CWD_misc_session="${TMUX_FAKE_CWD_misc_session:-}" \
+      bash -c "
+        source \"$_VIBE_SH\"
+        _vibe_sessions_matching_cwd \"$target\"
+      "
+}
+
+# Case 1: 0 sessions
+TMUX_FAKE_SESSIONS=""
+got="$(run_match /any/path)"
+assert_eq "${got:-<empty>}" "<empty>" "matching cwd: 0 sessions → empty"
+
+# Case 2: 1 vibe-* session, cwd matches
+TMUX_FAKE_SESSIONS="vibe-boldfox"
+TMUX_FAKE_CWD_vibe_boldfox="/home/u/projectA"
+got="$(run_match /home/u/projectA)"
+assert_eq "$got" "vibe-boldfox" "matching cwd: 1 match → name returned"
+
+# Case 3: 1 vibe-* session, cwd does NOT match
+got="$(run_match /home/u/elsewhere)"
+assert_eq "${got:-<empty>}" "<empty>" "matching cwd: 1 session, no match → empty"
+
+# Case 4: vibe-* mixed with non-vibe (only vibe-* should be considered)
+TMUX_FAKE_SESSIONS="vibe-boldfox misc-session"
+TMUX_FAKE_CWD_vibe_boldfox="/home/u/projectA"
+TMUX_FAKE_CWD_misc_session="/home/u/projectA"
+got="$(run_match /home/u/projectA)"
+assert_eq "$got" "vibe-boldfox" "matching cwd: non-vibe-* session is filtered out"
+
+# Case 5: multiple matches, deterministic order (list-sessions order is preserved)
+TMUX_FAKE_SESSIONS="vibe-boldfox vibe-featurex vibe-quietowl"
+TMUX_FAKE_CWD_vibe_boldfox="/home/u/projectA"
+TMUX_FAKE_CWD_vibe_featurex="/home/u/projectA"
+TMUX_FAKE_CWD_vibe_quietowl="/home/u/scratch"
+got="$(run_match /home/u/projectA | tr '\n' ',' | sed 's/,$//')"
+assert_eq "$got" "vibe-boldfox,vibe-featurex" "matching cwd: N matches, ordered"
+
+# Cleanup the tmux stub so subsequent E2E section uses real tmux if present
+rm -f "$_TMP_BIN/tmux"
+
+###############################################################################
 section "Real-API smoke (opt-in)"
 ###############################################################################
 

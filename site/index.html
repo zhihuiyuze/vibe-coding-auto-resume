@@ -57,6 +57,7 @@
   <nav>
     <a href="#install">Install</a>
     <a href="#scenarios">Scenarios</a>
+    <a href="#ls">Sessions</a>
     <a href="#how">How it works</a>
     <a href="#flags">CLI</a>
     <a href="https://github.com/zhihuiyuze/vibe-coding-auto-resume">Source</a>
@@ -126,6 +127,22 @@ vibe work                                   # 3. re-attach (or `vibe work &lt;na
 ssh you@server "tmux capture-pane -t vibe-default -p | tail -50"
 ssh you@server "vibe status"</code></pre>
   <p>If <code>tmux ls</code> says <code>no server running</code>, the host rebooted or tmux was OOM-killed. The tmux session is gone but Claude's JSONL log isn't — use Scenario 2 above to resume.</p>
+</section>
+
+<section id="ls">
+  <h2>Discover &amp; juggle sessions</h2>
+  <p><code>vibe ls</code> shows every <code>vibe-*</code> tmux session with its cwd, attached state, and a <code>← here</code> mark when the cwd matches yours:</p>
+<pre><code>$ vibe ls
+  vibe-boldfox              /home/u/dev/projectA  ← here  [attached]
+  vibe-feature-x            /home/u/dev/projectA  ← here
+  vibe-quietowl             /home/u/dev/scratch</code></pre>
+  <p><code>vibe work</code> without arguments now uses this discovery before defaulting to the cwd-hash name:</p>
+  <ul>
+    <li><strong>0 matches</strong> → creates a new session (cwd-hash name).</li>
+    <li><strong>1 match</strong> → attaches directly, no prompt.</li>
+    <li><strong>N matches</strong> → interactive picker (<code>1..N</code> to pick, <code>n</code> for a new one).</li>
+  </ul>
+  <p>Explicit <code>vibe work &lt;name&gt;</code> skips discovery — the name always wins. For projects you'll revisit often, give an explicit name (<code>vibe work projectA</code>) so the session survives path renames and is recognizable in <code>vibe ls</code>.</p>
 </section>
 
 <section id="llm">

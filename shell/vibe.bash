@@ -31,13 +31,53 @@ _vibe_default_name() {
   printf '%s%s' "${_VIBE_WORDS_ADJ[$a]}" "${_VIBE_WORDS_NOUN[$n]}"
 }
 
-_vibe_work() {
+# Emit names of vibe-* tmux sessions whose first pane's current_path == $1.
+# Uses tmux's pane_current_path (foreground process cwd) — see
+# docs/design/011-session-picker.md for the why.
+_vibe_sessions_matching_cwd() {
+  local target="$1" name cwd
+  tmux list-sessions -F '#{session_name}' 2>/dev/null | while IFS= read -r name; do
+    [[ "$name" == vibe-* ]] || continue
+    cwd="$(tmux display-message -p -t "$name" '#{pane_current_path}' 2>/dev/null)"
+    [[ "$cwd" == "$target" ]] && printf '%s\n' "$name"
+  done
+  # Explicit success: the loop's last `[[ ]] && printf` returns 1 on a
+  # non-match, which would otherwise bubble out as the function's exit code
+  # and trip set -e in strict-mode callers.
+  return 0
+}
+
+# Print a formatted table of all vibe-* sessions: name, current cwd,
+# "← here" if cwd matches $PWD, "[attached]" if a client is connected.
+_vibe_ls() {
+  if ! tmux list-sessions >/dev/null 2>&1; then
+    echo "(no tmux server running)"
+    return 0
+  fi
+  local name attached cwd here tag found=0
+  while IFS='|' read -r name attached; do
+    [[ "$name" == vibe-* ]] || continue
+    found=1
+    cwd="$(tmux display-message -p -t "$name" '#{pane_current_path}' 2>/dev/null)"
+    here=""; tag=""
+    [[ "$cwd" == "$PWD" ]] && here="  ← here"
+    (( attached > 0 )) && tag="  [attached]"
+    printf '  %-25s  %s%s%s\n' "$name" "$cwd" "$here" "$tag"
+  done < <(tmux list-sessions -F '#{session_name}|#{session_attached}' 2>/dev/null)
+  (( found == 0 )) && echo "  (no vibe-* sessions)"
+  return 0  # same rationale as _vibe_sessions_matching_cwd
+}
+
+# Fall-through "create or attach by cwd-hash" — the original _vibe_work body.
+# Factored out so the smart picker can call into it as the "n) new" branch.
+_vibe_work_default() {
+  local explicit="${1:-}"
   local target="${VIBE_PROJECT_ROOT:-$PWD}"
   cd "$target" || {
     echo "vibe: cannot cd to '$target' (set VIBE_PROJECT_ROOT in ~/.config/vibe/env or run \`vibe work\` from your project)" >&2
     return 1
   }
-  local name="${1:-$(_vibe_default_name)}"
+  local name="${explicit:-$(_vibe_default_name)}"
   local tmux_session="vibe-$name"
   local state_dir="$VIBE_STATE_DIR/$name"
   mkdir -p "$state_dir"
@@ -53,14 +93,72 @@ _vibe_work() {
   fi
 }
 
+_vibe_work() {
+  local explicit="${1:-}"
+
+  # Explicit name → no discovery, original behavior.
+  if [[ -n "$explicit" ]]; then
+    _vibe_work_default "$explicit"
+    return
+  fi
+
+  # No name: discover vibe-* sessions whose cwd matches $PWD.
+  local -a matches=()
+  local m
+  while IFS= read -r m; do
+    [[ -n "$m" ]] && matches+=("$m")
+  done < <(_vibe_sessions_matching_cwd "$PWD")
+
+  case ${#matches[@]} in
+    0)
+      _vibe_work_default
+      ;;
+    1)
+      echo "vibe: attaching to '${matches[0]}' (only session matching $PWD)"
+      tmux attach -t "${matches[0]}"
+      ;;
+    *)
+      if [[ ! -t 0 ]]; then
+        echo "vibe: ${#matches[@]} sessions match $PWD (interactive picker requires a TTY):" >&2
+        for m in "${matches[@]}"; do echo "  $m" >&2; done
+        echo "Re-run with an explicit name: vibe work <name>" >&2
+        return 1
+      fi
+      echo "vibe: ${#matches[@]} sessions match $PWD"
+      local i=1
+      for m in "${matches[@]}"; do
+        printf '  %d) %s\n' "$i" "$m"
+        i=$((i+1))
+      done
+      echo "  n) new session (uses cwd-hash name: $(_vibe_default_name))"
+      printf "pick [1-%d/n]: " "${#matches[@]}"
+      local choice
+      IFS= read -r choice || return 1
+      if [[ "$choice" == "n" ]]; then
+        _vibe_work_default
+      elif [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#matches[@]} )); then
+        local picked="${matches[$((choice-1))]}"
+        echo "vibe: attaching to '$picked'"
+        tmux attach -t "$picked"
+      else
+        echo "vibe: invalid choice; aborting." >&2
+        return 1
+      fi
+      ;;
+  esac
+}
+
 _vibe_help() {
   cat <<EOF
 vibe — auto-resume wrapper for agentic coding CLIs
 
 Usage:
-  vibe work [name]          enter/attach tmux session "vibe-<name>" in VIBE_PROJECT_ROOT
-                            name defaults to a readable hash of \$PWD
-                            (e.g. "boldfox", same cwd → same name)
+  vibe work [name]          enter/attach a vibe tmux session.
+                            no name + 0 sessions match \$PWD: create new (cwd-hash name)
+                            no name + 1 session  matches \$PWD: attach to it
+                            no name + N sessions match \$PWD: interactive picker
+                            explicit name: skip discovery, attach/create "vibe-<name>"
+  vibe ls                   list all vibe-* tmux sessions (cwd, attached, "← here" if cwd matches)
   vibe run [...args]        launch underlying agent (claude) with auto-resume
                             vibe flags (override env config, then pass-through):
                               --resume <uuid>        resume a specific session
@@ -102,6 +200,9 @@ vibe() {
   case "$cmd" in
     work)
       _vibe_work "$@"
+      ;;
+    ls|list)
+      _vibe_ls
       ;;
     run)
       if command -v vibe-run >/dev/null 2>&1; then

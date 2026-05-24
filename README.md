@@ -82,6 +82,29 @@ ssh you@server "vibe status"                                          # current 
 
 ---
 
+## Discover & juggle sessions
+
+`vibe ls` shows every `vibe-*` tmux session with its current cwd, attached state, and a `← here` mark when the cwd matches yours:
+
+```
+$ vibe ls
+  vibe-boldfox              /home/u/dev/projectA  ← here  [attached]
+  vibe-feature-x            /home/u/dev/projectA  ← here
+  vibe-quietowl             /home/u/dev/scratch
+```
+
+`vibe work` without arguments now uses this discovery before defaulting to the cwd-hash name:
+
+- **0 matches** → creates a new session (cwd-hash name).
+- **1 match** → attaches directly, no prompt.
+- **N matches** → interactive picker (`1..N` to pick, `n` for a new one).
+
+Explicit `vibe work <name>` skips discovery — the name always wins.
+
+**Naming tip**: for projects you'll touch repeatedly, give the session an explicit name (`vibe work projectA`) instead of letting the cwd hash pick. It survives path changes (renames, symlinks) and is recognizable in `vibe ls` output.
+
+---
+
 ## Optional: smarter detection via LLM
 
 L1 (JSONL parsing) and L2 (tmux pane regex) cover the common rate-limit shapes with zero external calls. To handle TUI wording changes and edge cases — and to extract reset times the regex misses — opt into L3:

@@ -82,6 +82,29 @@ ssh vous@server "vibe status"                                          # usage d
 
 ---
 
+## Découvrir et jongler avec les sessions
+
+`vibe ls` liste toutes les sessions tmux `vibe-*` avec leur cwd actuel, l'état d'attachement, et un marqueur `← here` quand le cwd correspond au vôtre :
+
+```
+$ vibe ls
+  vibe-boldfox              /home/u/dev/projectA  ← here  [attached]
+  vibe-feature-x            /home/u/dev/projectA  ← here
+  vibe-quietowl             /home/u/dev/scratch
+```
+
+`vibe work` sans argument utilise désormais cette découverte avant de retomber sur le nom par hash de cwd :
+
+- **0 correspondance** → crée une nouvelle session (nom par hash de cwd).
+- **1 correspondance** → rattache directement, sans prompt.
+- **N correspondances** → picker interactif (`1..N` pour choisir, `n` pour une nouvelle).
+
+`vibe work <name>` explicite saute la découverte — le nom gagne toujours.
+
+**Conseil de nommage** : pour les projets sur lesquels vous revenez souvent, donnez un nom explicite à la session (`vibe work projectA`) plutôt que de laisser le hash de cwd décider. Ça résiste aux changements de chemin (renommages, symlinks) et c'est lisible dans `vibe ls`.
+
+---
+
 ## Optionnel : détection LLM plus intelligente
 
 L1 (parsing JSONL) et L2 (regex sur le pane) couvrent les rate limits courants sans appel externe. Pour gérer les changements de wording du TUI et extraire les heures de reset que la regex manque, activez L3 :

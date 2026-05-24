@@ -57,6 +57,7 @@
   <nav>
     <a href="#install">Установка</a>
     <a href="#scenarios">Сценарии</a>
+    <a href="#ls">Сессии</a>
     <a href="#how">Как работает</a>
     <a href="#flags">CLI</a>
     <a href="https://github.com/zhihuiyuze/vibe-coding-auto-resume">Исходник</a>
@@ -126,6 +127,22 @@ vibe work                                   # 3. реаттач (или `vibe wo
 ssh you@server "tmux capture-pane -t vibe-default -p | tail -50"
 ssh you@server "vibe status"</code></pre>
   <p>Если <code>tmux ls</code> отвечает <code>no server running</code>, машина перезагрузилась или tmux был OOM-killed. tmux-сессия потеряна, но JSONL-история Claude — нет. Используйте сценарий 2 выше, чтобы продолжить.</p>
+</section>
+
+<section id="ls">
+  <h2>Обнаружение и жонглирование сессиями</h2>
+  <p><code>vibe ls</code> показывает все <code>vibe-*</code> tmux-сессии с их cwd, статусом аттача и пометкой <code>← here</code>, когда cwd совпадает с вашим:</p>
+<pre><code>$ vibe ls
+  vibe-boldfox              /home/u/dev/projectA  ← here  [attached]
+  vibe-feature-x            /home/u/dev/projectA  ← here
+  vibe-quietowl             /home/u/dev/scratch</code></pre>
+  <p><code>vibe work</code> без аргументов теперь сначала использует это обнаружение, прежде чем падать на имя по хэшу cwd:</p>
+  <ul>
+    <li><strong>0 совпадений</strong> → создаёт новую сессию (имя по хэшу cwd).</li>
+    <li><strong>1 совпадение</strong> → аттачится напрямую, без вопросов.</li>
+    <li><strong>N совпадений</strong> → интерактивный picker (<code>1..N</code> чтобы выбрать, <code>n</code> для новой).</li>
+  </ul>
+  <p>Явный <code>vibe work &lt;name&gt;</code> пропускает обнаружение — имя всегда выигрывает. Для часто посещаемых проектов давайте явное имя (<code>vibe work projectA</code>) — переживает переименования путей и читаемо в <code>vibe ls</code>.</p>
 </section>
 
 <section id="llm">
