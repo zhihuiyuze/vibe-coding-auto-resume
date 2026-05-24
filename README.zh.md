@@ -30,7 +30,7 @@
 ## 安装
 
 ```bash
-git clone https://github.com/<user>/vibe-coding-auto-resume.git ~/dev/claude-auto-continue
+git clone https://github.com/zhihuiyuze/vibe-coding-auto-resume.git ~/dev/claude-auto-continue
 cd ~/dev/claude-auto-continue
 ./install.sh
 sudo apt install tmux  # 如未装
