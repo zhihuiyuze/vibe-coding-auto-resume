@@ -7,7 +7,7 @@
   <meta name="theme-color" content="#1a1a1a" media="(prefers-color-scheme: dark)">
 
   <title>vibe-coding-auto-resume — Claude Code 限额自动恢复</title>
-  <meta name="description" content="在 tmux 里包一层 Claude Code CLI，hit 限额后自动 sleep 到 reset 再 resume 原会话。核心零依赖，LLM 检测可选。">
+  <meta name="description" content="把 Claude Code CLI 包进 tmux，长任务自动熬过 rate limit 和 SSH 断线，不用守 reset 时间。核心零依赖，LLM 检测可选。">
 
   <link rel="canonical" href="https://vibe-resume.huize.org/zh/">
   <link rel="alternate" hreflang="en"        href="https://vibe-resume.huize.org/">
@@ -19,7 +19,7 @@
   <meta property="og:type"           content="website">
   <meta property="og:site_name"      content="vibe-coding-auto-resume">
   <meta property="og:title"          content="vibe-coding-auto-resume — Claude Code 限额自动恢复">
-  <meta property="og:description"    content="在 tmux 里包一层 Claude Code CLI，hit 限额后自动 sleep 到 reset 再 resume 原会话。">
+  <meta property="og:description"    content="把 Claude Code CLI 包进 tmux，长任务自动熬过 rate limit 和 SSH 断线。">
   <meta property="og:url"            content="https://vibe-resume.huize.org/zh/">
   <meta property="og:locale"         content="zh_CN">
   <meta property="og:locale:alternate" content="en_US">
@@ -53,7 +53,7 @@
 
 <header>
   <h1>vibe-coding-auto-resume</h1>
-  <p class="tagline">Claude Code hit 限额后自动 <code>resume</code>。</p>
+  <p class="tagline">把 <code>claude</code> 包进 tmux，hit 限额后自动续。</p>
   <nav>
     <a href="#install">安装</a>
     <a href="#scenarios">使用场景</a>
@@ -69,18 +69,18 @@
 
 <section>
   <h2>痛点</h2>
-  <p>Claude Code 的 5 小时和周限额会打断长 agentic 任务，SSH 断开会让会话彻底死。醒来发现任务半成品，终端也丢了。</p>
+  <p>Claude Code 的 5 小时和周限额会打断长 agentic 任务，SSH 断开会把会话整个杀掉。醒来一看任务半成品，终端也丢了。</p>
 </section>
 
 <section>
   <h2>它做什么</h2>
   <ul>
-    <li>包一层 <code>claude</code>，hit 5 小时块 → sleep 到 reset → 用同一个 session UUID 自动续接。</li>
+    <li>把 <code>claude</code> 包一层，hit 5 小时块就 sleep 到 reset，用同一个 session UUID 自动续。</li>
     <li>跑在命名的 tmux session 里，SSH 断了不影响。</li>
-    <li>三层检测：本地确定性优先，LLM 可选并需 opt-in。</li>
-    <li>自动处理新的交互式限额 modal（自动选安全选项 "Stop and wait"）。</li>
+    <li>三层检测：本地确定性优先，LLM 可选 opt-in。</li>
+    <li>自动接住新的交互式限额 modal（只选安全的 "Stop and wait"）。</li>
     <li>多会话：<code>vibe work feature-a</code> 和 <code>vibe work bugfix</code> 并行隔离。</li>
-    <li>核心只依赖 <code>bash</code>、<code>jq</code>、<code>curl</code>、<code>tmux</code>，无 npm、无 pip。</li>
+    <li>核心只依赖 <code>bash</code>、<code>jq</code>、<code>curl</code>、<code>tmux</code>，没有 npm 没有 pip。</li>
   </ul>
 </section>
 
@@ -90,79 +90,79 @@
 cd ~/vibe
 ./install.sh
 source ~/.bashrc</code></pre>
-  <p>幂等。把工具软链到 <code>~/.local/bin/</code>，往 <code>~/.bashrc</code> 写一个 <code>vibe</code> shell 函数，往 <code>~/.tmux.conf</code> 追加 snippet。不动 <code>~/.claude/</code>，不替你跑 <code>sudo</code>。</p>
+  <p>幂等。把工具软链到 <code>~/.local/bin/</code>，往 <code>~/.bashrc</code> 写一个 <code>vibe</code> shell 函数，往 <code>~/.tmux.conf</code> 追加 snippet。不动 <code>~/.claude/</code>，也不替你跑 <code>sudo</code>。</p>
 </section>
 
 <section id="scenarios">
   <h2>三个场景，对号入座</h2>
 
-  <h3>1. 我要起一个新的 Claude 任务</h3>
+  <h3>1. 起一个新的 Claude 任务</h3>
 <pre><code>cd ~/dev/&lt;your-project&gt;
-vibe work                  # cd 到这里 + 开命名 tmux session
-vibe run                   # 替代 claude，参数一致 UI 一致</code></pre>
-  <p>正常用 Claude。5 小时 block 烧光时，<code>vibe run</code> sleep 到 reset，自动用<strong>同一个 session UUID</strong> 重启。Anthropic 新的交互式 modal（<code>What do you want to do? 1. Stop and wait …</code>）会被自动处理 — 只选安全选项 "Stop and wait"。</p>
+vibe work                  # cd 到这里，开命名 tmux session
+vibe run                   # 替代 claude，参数和 UI 一致</code></pre>
+  <p>正常用 Claude。5 小时 block 烧光时，<code>vibe run</code> 自己 sleep 到 reset，再用同一个 session UUID 重启。Anthropic 新的交互式 modal（<code>What do you want to do? 1. Stop and wait …</code>）也会被接住，只选安全的 "Stop and wait"，绝不碰花钱那两个。</p>
   <p>暂时离开：<code>Ctrl+b d</code>。回来：<code>vibe work</code>。</p>
 
-  <h3>2. 我想接着之前开过的会话继续</h3>
-  <p>如果你记得 session UUID：</p>
+  <h3>2. 接着之前开过的会话继续</h3>
+  <p>记得 session UUID 的话：</p>
 <pre><code>cd ~/dev/&lt;your-project&gt;
 vibe work
 vibe run --resume &lt;session-uuid&gt;</code></pre>
-  <p>不记得但确定是该项目最近一个 session：</p>
-<pre><code>vibe run --mode continue                    # 等价于 claude --continue，外加 hit limit 自动续接</code></pre>
-  <p>列出可选 UUID：</p>
+  <p>不记得，但是这个项目最近一个 session：</p>
+<pre><code>vibe run --mode continue                    # 等价 claude --continue，外加 hit limit 自动续</code></pre>
+  <p>列出候选 UUID：</p>
 <pre><code>ls -t ~/.claude/projects/$(pwd | sed 's|/|-|g')/*.jsonl | head -5
 # 文件名去掉 .jsonl 就是 session UUID</code></pre>
 
-  <h3>3. SSH 断了 — 怎么确认还在跑、怎么重连恢复</h3>
-  <p>tmux 才是 <code>claude</code> 的真正归属，跟你的 shell 无关。SSH 死了 session 不会死。逐步操作：</p>
-<pre><code>ssh you@server                              # 1. 重新连上
-tmux ls                                     # 2. 看 vibe-* session 是否还活着
-                                            #    正常应输出类似 "vibe-default: 1 windows (...)"
-vibe work                                   # 3. 重新 attach（用了自定义名字就 `vibe work &lt;name&gt;`）
+  <h3>3. SSH 断了，怎么确认还在跑、怎么重连回去</h3>
+  <p>tmux 才是 <code>claude</code> 的真正归属，跟你的 shell 无关。SSH 死了 session 不会死。三步走：</p>
+<pre><code>ssh you@server                              # 1. 重连
+tmux ls                                     # 2. vibe-* session 还在不在
+                                            #    正常会输出类似 "vibe-default: 1 windows (...)"
+vibe work                                   # 3. 重新 attach（用了名字就 `vibe work &lt;name&gt;`）
                                             #    一进去就是离开时的现场</code></pre>
-  <p>attach 后想看走开期间发生了什么：<code>Ctrl+b [</code> 进入翻页模式，PageUp / 方向键往上翻，<code>q</code> 退出。如果中间 hit 了 limit，wrapper 已经替你处理过了 — 会看到 <code>[vibe-run] Sleeping … until …</code> 和恢复运行的日志。</p>
-  <p>不 attach 只想偷瞄一眼（比如换台机器看看状态）：</p>
+  <p>attach 后想看走开期间发生了什么，<code>Ctrl+b [</code> 进翻页模式，PageUp 或方向键往上翻，<code>q</code> 退出。如果中间 hit 了 limit，wrapper 已经处理过了，scrollback 里能看到 <code>[vibe-run] Sleeping … until …</code> 和恢复运行的日志。</p>
+  <p>不想 attach，只想瞄一眼（换台机器看状态）：</p>
 <pre><code>ssh you@server "tmux ls"
 ssh you@server "tmux capture-pane -t vibe-default -p | tail -50"
 ssh you@server "vibe status"</code></pre>
-  <p>如果 <code>tmux ls</code> 输出 <code>no server running</code>，通常是机器重启或 tmux 被 OOM kill 了。tmux session 没了，但 Claude 的 JSONL 历史还在 — 走上面的场景 2 续接即可。</p>
+  <p>如果 <code>tmux ls</code> 输出 <code>no server running</code>，通常是机器重启了，或者 tmux 被 OOM kill 了。tmux session 没了，但 Claude 的 JSONL 历史还在，走上面场景 2 就能从原 session 续。</p>
 </section>
 
 <section id="ls">
   <h2>发现 &amp; 管理会话</h2>
-  <p><code>vibe ls</code> 列出所有 <code>vibe-*</code> tmux session，附 cwd、是否 attached、<code>← here</code> 标记（如果 cwd 跟你当前一致）：</p>
+  <p><code>vibe ls</code> 列出所有 <code>vibe-*</code> tmux session，附 cwd、是否 attached、<code>← here</code> 标记（cwd 跟你当前一致就标）：</p>
 <pre><code>$ vibe ls
   vibe-boldfox              /home/u/dev/projectA  ← here  [attached]
   vibe-feature-x            /home/u/dev/projectA  ← here
   vibe-quietowl             /home/u/dev/scratch</code></pre>
-  <p><code>vibe work</code> 不带参数时，现在会先 discovery 再决定：</p>
+  <p><code>vibe work</code> 不带参数时，现在会先看 cwd 有没有匹配的 session 再决定：</p>
   <ul>
-    <li><strong>0 个匹配</strong> → 新建（cwd 哈希命名）。</li>
-    <li><strong>1 个匹配</strong> → 直接 attach，不问。</li>
-    <li><strong>N 个匹配</strong> → 交互式 picker（输 <code>1..N</code> 选，<code>n</code> 新建）。</li>
+    <li>0 个匹配，新建（cwd 哈希命名）</li>
+    <li>1 个匹配，直接 attach 不问</li>
+    <li>N 个匹配，弹交互式 picker（输 <code>1..N</code> 选，<code>n</code> 新建）</li>
   </ul>
-  <p>显式 <code>vibe work &lt;name&gt;</code> 跳过 discovery，名字优先。**经常用的项目**给个显式名字（<code>vibe work projectA</code>）—— 路径改名/换符号链不会漂到新 session，在 <code>vibe ls</code> 里也好认。</p>
+  <p>显式 <code>vibe work &lt;name&gt;</code> 跳过 discovery，名字永远赢。经常用的项目，建议给个显式名字（<code>vibe work projectA</code>）而不是依赖 cwd 哈希。这样路径改名或换符号链不会漂到别的 session，<code>vibe ls</code> 里也好认。</p>
 </section>
 
 <section id="llm">
-  <h2>可选：开 LLM 增强检测</h2>
-  <p>L1（JSONL 解析）和 L2（tmux pane regex）在常见 rate limit 场景下零外发就够用。想更稳应对 TUI 文案变化、抽 L2 regex 抓不到的 reset 时间，可以 opt-in L3：</p>
-<pre><code>echo 'DEEPSEEK_API_KEY=sk-...' &gt;&gt; ~/.config/vibe/env   # chmod 600，installer 已建
+  <h2>可选：开 L3 LLM 检测</h2>
+  <p>L1（JSONL 解析）和 L2（tmux pane regex）在常见 rate limit 场景下零外发够用。想更稳地应对 TUI 文案变化、想抓 L2 regex 漏掉的 reset 时间，可以 opt-in L3：</p>
+<pre><code>echo 'DEEPSEEK_API_KEY=sk-...' &gt;&gt; ~/.config/vibe/env   # chmod 600，installer 已建文件
 chmod 600 ~/.config/vibe/env
 source ~/.bashrc</code></pre>
-  <p>支持的 provider：<strong>DeepSeek</strong>（约 $0.05/block）、<strong>Anthropic Claude Haiku</strong>、<strong>OpenAI gpt-4o-mini</strong>、<strong>Ollama</strong>（本地，<code>[untested]</code>）。L3 关闭时（默认，未加 key 前一直是关闭）任何数据都不出本机。</p>
+  <p>支持的 provider：DeepSeek（约 $0.05/block）、Anthropic Claude Haiku、OpenAI gpt-4o-mini、Ollama（本地，<code>[untested]</code>）。L3 关掉时（默认，加 key 前一直是关）任何数据都不出本机。</p>
 </section>
 
 <section id="how">
   <h2>检测原理</h2>
-  <p>当 <code>claude</code> 退出时，三层信号判断刚才发生了什么：</p>
+  <p><code>claude</code> 退出时，三层信号判断刚才发生了什么：</p>
   <table>
     <tr><th>层</th><th>读取来源</th><th>什么时候有用</th></tr>
-    <tr><td><strong>L1</strong></td><td><code>~/.claude/projects/&lt;cwd&gt;/*.jsonl</code> — Claude 自己的日志</td><td>常开。算 token 用量、block 开始/结束。</td></tr>
-    <tr><td><strong>L2</strong></td><td><code>tmux capture-pane</code> + 滚动缓冲</td><td>主窗口能看到的限额提示。</td></tr>
-    <tr><td><strong>L2.5</strong></td><td>JSONL 尾部文本扫描</td><td>子 agent 的限额提示被滚出窗口外时兜底。</td></tr>
-    <tr><td><strong>L3</strong></td><td>LLM 分类器（DeepSeek / Claude Haiku / OpenAI / Ollama）</td><td>Opt-in。对措辞变化鲁棒，能语义提取 reset 时间。</td></tr>
+    <tr><td>L1</td><td><code>~/.claude/projects/&lt;cwd&gt;/*.jsonl</code>，Claude 自己的日志</td><td>常开。算 token 用量、block 开始和结束。</td></tr>
+    <tr><td>L2</td><td><code>tmux capture-pane</code> + 滚动缓冲</td><td>主窗口能看到的限额提示。</td></tr>
+    <tr><td>L2.5</td><td>JSONL 尾部文本扫描</td><td>子 agent 的限额提示被滚出窗口外时兜底。</td></tr>
+    <tr><td>L3</td><td>LLM 分类器（DeepSeek / Claude Haiku / OpenAI / Ollama）</td><td>Opt-in。对措辞变化鲁棒，能语义提取 reset 时间。</td></tr>
   </table>
   <p>L1 和 L2/L2.5 完全本地、零外发。L3 是 opt-in，DeepSeek 大概 <code>$0.05/block</code>。</p>
 </section>
@@ -171,7 +171,7 @@ source ~/.bashrc</code></pre>
   <h2>CLI 参数</h2>
 <pre><code>vibe run [...args]
   --resume &lt;uuid&gt;        恢复指定会话（传一次，所有续接 cycle 都用）
-  --threshold &lt;0..1&gt;     opt-in 软上限（默认关 — 榨干当前 block）
+  --threshold &lt;0..1&gt;     opt-in 软上限（默认关，榨干当前 block）
   --max-cycles &lt;n&gt;       本次调用最多续接几次（0 = 无限，默认 1）
   --mode auto|session-id|continue
   --provider deepseek|claude|openai|ollama
@@ -185,9 +185,9 @@ source ~/.bashrc</code></pre>
   <h2>配置</h2>
   <table>
     <tr><th>位置</th><th>内容</th></tr>
-    <tr><td><code>~/.config/vibe/env</code></td><td>LLM keys + 可调参数（chmod 600）。bashrc 里的标记块用 <code>set -a</code> 导出。</td></tr>
+    <tr><td><code>~/.config/vibe/env</code></td><td>LLM keys 加可调参数（chmod 600）。bashrc 里的标记块用 <code>set -a</code> 导出。</td></tr>
     <tr><td><code>~/.local/state/vibe/&lt;name&gt;/</code></td><td>各 session 的 UUID 缓存。<code>vibe work foo</code> 和 <code>vibe work bar</code> 互相隔离。</td></tr>
-    <tr><td><code>&lt;your-project&gt;/HANDOFF.md</code></td><td>跨会话续接文件。仅在你从该项目内运行 <code>vibe setup-workspace</code> 时创建。</td></tr>
+    <tr><td><code>&lt;your-project&gt;/HANDOFF.md</code></td><td>跨会话续接文件。只在你从该项目内运行 <code>vibe setup-workspace</code> 时才创建。</td></tr>
   </table>
 </section>
 
@@ -195,19 +195,19 @@ source ~/.bashrc</code></pre>
   <h2>它永远不做的事</h2>
   <ul>
     <li>不动其他项目目录，除非你从那个项目内显式跑 <code>vibe setup-workspace</code>。</li>
-    <li>不读你项目的 <code>.env</code> / <code>.env.local</code>。工具凭证在 <code>~/.config/vibe/env</code>，项目环境是你的。</li>
-    <li>不跑 <code>sudo</code>。安装器只会打印需要 sudo 的一两条命令然后停下。</li>
-    <li>L3 关闭时（默认）任何数据都不外发。</li>
-    <li>限额 modal 永不自动选付费选项 — 只选 "Stop and wait"，绝不碰 "Switch to usage credits" 或 "Upgrade your plan"。</li>
+    <li>不读你项目的 <code>.env</code> 或 <code>.env.local</code>。工具凭证在 <code>~/.config/vibe/env</code>，项目环境是你的。</li>
+    <li>不跑 <code>sudo</code>。安装器只打印需要 sudo 的一两条命令然后停下。</li>
+    <li>L3 关掉时（默认）任何数据都不外发。</li>
+    <li>限额 modal 永不自动选付费选项，只选 "Stop and wait"，绝不碰 "Switch to usage credits" 或 "Upgrade your plan"。</li>
   </ul>
 </section>
 
 <section>
   <h2>文档</h2>
   <ul>
-    <li><a href="https://github.com/zhihuiyuze/vibe-coding-auto-resume/blob/main/AGENTS.md">AGENTS.md</a> — 架构、贡献指南、spec-first 工作流。</li>
-    <li><a href="https://github.com/zhihuiyuze/vibe-coding-auto-resume/blob/main/docs/architecture.md">docs/architecture.md</a> — 完整数据流图。</li>
-    <li><a href="https://github.com/zhihuiyuze/vibe-coding-auto-resume/tree/main/docs/design">docs/design/</a> — 每个 feature 一个已接受的设计文档。</li>
+    <li><a href="https://github.com/zhihuiyuze/vibe-coding-auto-resume/blob/main/AGENTS.md">AGENTS.md</a>：架构、贡献指南、spec-first 工作流。</li>
+    <li><a href="https://github.com/zhihuiyuze/vibe-coding-auto-resume/blob/main/docs/architecture.md">docs/architecture.md</a>：完整数据流图。</li>
+    <li><a href="https://github.com/zhihuiyuze/vibe-coding-auto-resume/tree/main/docs/design">docs/design/</a>：每个 feature 一个已接受的设计文档。</li>
   </ul>
 </section>
 
