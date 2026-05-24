@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>vibe-coding-auto-resume — auto-resume Claude Code after rate limits</title>
+  <meta name="description" content="Auto-resume Claude Code CLI after rate-limit resets. Claude Code 自动恢复. Reprise automatique Claude Code. Автовозобновление Claude Code. tmux + JSONL + optional LLM detection.">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <h1>vibe-coding-auto-resume</h1>
+  <p class="tagline">Auto-resume <code>claude</code> after rate-limit resets. <span class="alt">Claude Code 自动恢复 · Reprise automatique · Автовозобновление</span></p>
+  <nav>
+    <a href="#install">Install</a>
+    <a href="#how">How it works</a>
+    <a href="#flags">CLI</a>
+    <a href="https://github.com/REPLACE_ME/vibe-coding-auto-resume">Source</a>
+  </nav>
+</header>
+
+<main>
+
+<section>
+  <h2>The problem</h2>
+  <p>Claude Code's 5-hour and weekly limits interrupt long agentic loops. SSH disconnects kill the session. You wake up to find a half-finished task and a stale terminal.</p>
+</section>
+
+<section>
+  <h2>What it does</h2>
+  <ul>
+    <li>Wraps <code>claude</code> so it survives the 5-hour block: sleep until reset, then resume the same session UUID.</li>
+    <li>Runs inside a named tmux session so SSH drops don't matter.</li>
+    <li>Three-layer detection (deterministic-first, LLM optional &amp; opt-in).</li>
+    <li>Multi-session: <code>vibe work feature-a</code> &amp; <code>vibe work bugfix</code> live side-by-side, isolated state.</li>
+    <li>Zero core runtime deps beyond <code>bash</code>, <code>jq</code>, <code>curl</code>, <code>tmux</code>. No npm, no pip.</li>
+  </ul>
+</section>
+
+<section id="install">
+  <h2>Install</h2>
+<pre><code>git clone https://github.com/REPLACE_ME/vibe-coding-auto-resume.git ~/vibe
+cd ~/vibe
+./install.sh
+source ~/.bashrc</code></pre>
+  <p>Then, from any project directory:</p>
+<pre><code>vibe work                                       # cd into project + tmux
+vibe run                                        # claude with auto-resume
+vibe run --resume &lt;session-uuid&gt;                # resume an existing session
+vibe status                                     # check current block usage</code></pre>
+  <p>Optional: drop an LLM key into <code>~/.config/vibe/env</code> (created by the installer) to upgrade detection accuracy.</p>
+</section>
+
+<section id="how">
+  <h2>How detection works</h2>
+  <p>When <code>claude</code> exits, three signals decide what happened:</p>
+  <table>
+    <tr><th>Layer</th><th>Reads</th><th>When it shines</th></tr>
+    <tr><td><strong>L1</strong></td><td><code>~/.claude/projects/&lt;cwd&gt;/*.jsonl</code> — Claude's own log</td><td>Always on. Tracks token usage and block start/end.</td></tr>
+    <tr><td><strong>L2</strong></td><td><code>tmux capture-pane</code> + scrollback</td><td>Visible rate-limit message in the main pane.</td></tr>
+    <tr><td><strong>L2.5</strong></td><td>JSONL tail text scan</td><td>Subagent rate-limit messages that scrolled out of the visible pane.</td></tr>
+    <tr><td><strong>L3</strong></td><td>LLM classifier (DeepSeek / Claude Haiku / OpenAI / Ollama)</td><td>Opt-in. Robust to wording changes; extracts reset time semantically.</td></tr>
+  </table>
+  <p>L1 and L2/L2.5 cost zero externally. L3 is opt-in and costs about <code>$0.05/block</code> with DeepSeek.</p>
+</section>
+
+<section id="flags">
+  <h2>CLI flags</h2>
+<pre><code>vibe run [...args]
+  --resume &lt;uuid&gt;        resume a specific session (passed once, used for all cycles)
+  --threshold &lt;0..1&gt;     opt-in soft cap (default off — burn the block)
+  --max-cycles &lt;n&gt;       resume cycles per invocation (0 = unlimited, default 1)
+  --mode auto|session-id|continue
+  --provider deepseek|claude|openai|ollama
+  --no-l3                force L1+L2 only
+  --dangerously-skip-permissions
+  -p "prompt"
+  ... any other flag passes straight to claude</code></pre>
+</section>
+
+<section>
+  <h2>Configuration</h2>
+  <table>
+    <tr><th>Where</th><th>What</th></tr>
+    <tr><td><code>~/.config/vibe/env</code></td><td>LLM keys + tunables (chmod 600). Sourced by the bashrc marker block with <code>set -a</code>.</td></tr>
+    <tr><td><code>~/.local/state/vibe/&lt;name&gt;/</code></td><td>Per-session UUID cache. Isolated between <code>vibe work foo</code> and <code>vibe work bar</code>.</td></tr>
+    <tr><td><code>&lt;your-project&gt;/HANDOFF.md</code></td><td>Cross-session continuity file. Created only when you run <code>vibe setup-workspace</code> from inside that project.</td></tr>
+  </table>
+</section>
+
+<section>
+  <h2>What it never does</h2>
+  <ul>
+    <li>Touch other projects' directories without an explicit <code>vibe setup-workspace</code> from inside.</li>
+    <li>Source your project's <code>.env</code> / <code>.env.local</code>. Tool credentials live in <code>~/.config/vibe/env</code>; project env is yours.</li>
+    <li>Run <code>sudo</code>. The installer prints the one or two commands that need it and stops.</li>
+    <li>Send anything off-machine when L3 is disabled (the default until you add a key).</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Docs</h2>
+  <ul>
+    <li><a href="https://github.com/REPLACE_ME/vibe-coding-auto-resume/blob/main/AGENTS.md">AGENTS.md</a> — architecture, contributor guide, spec-first workflow.</li>
+    <li><a href="https://github.com/REPLACE_ME/vibe-coding-auto-resume/blob/main/docs/architecture.md">docs/architecture.md</a> — full data flow diagram.</li>
+    <li><a href="https://github.com/REPLACE_ME/vibe-coding-auto-resume/tree/main/docs/design">docs/design/</a> — one accepted design doc per feature.</li>
+    <li><a href="https://github.com/REPLACE_ME/vibe-coding-auto-resume/blob/main/README.zh.md">中文</a> · <a href="https://github.com/REPLACE_ME/vibe-coding-auto-resume/blob/main/README.fr.md">Français</a> · <a href="https://github.com/REPLACE_ME/vibe-coding-auto-resume/blob/main/README.ru.md">Русский</a></li>
+  </ul>
+</section>
+
+</main>
+
+<footer>
+  <p>MIT license. Source on <a href="https://github.com/REPLACE_ME/vibe-coding-auto-resume">GitHub</a>.</p>
+</footer>
+
+</body>
+</html>

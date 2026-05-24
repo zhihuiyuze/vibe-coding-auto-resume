@@ -1,0 +1,23 @@
+> walk me through how the rate limiter handles burst traffic
+
+The limiter uses a token bucket with a refill rate of 100/s and a burst
+capacity of 500. Let me trace a burst scenario through the code so the
+behaviour is concrete.
+
+  Read(src/limiter/bucket.go)
+  ⎿  Read 156 lines
+
+  Read(src/limiter/middleware.go)
+  ⎿  Read 92 lines
+
+When a burst of 600 requests arrives at t=0:
+  - first 500 consume the bucket immediately (HTTP 200)
+  - request 501 sees an empty bucket, computes wait = (1 - tokens) / 100 = 10ms
+  - subsequent requests serialize behind that wait, draining at 100/s
+
+So the worst-case latency under burst is bounded by 1s (the time to refill
+the entire bucket once exhausted). That matches the SLO target.
+
+Want me to add a test that exercises this exact scenario?
+
+[Approaching 5-hour limit]

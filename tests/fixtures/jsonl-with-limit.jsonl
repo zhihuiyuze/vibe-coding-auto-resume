@@ -1,0 +1,4 @@
+{"type":"user","timestamp":"2026-05-24T10:00:00Z","message":{"role":"user","content":"please run the agents"}}
+{"type":"assistant","timestamp":"2026-05-24T10:00:01Z","message":{"role":"assistant","content":[{"type":"text","text":"Dispatching 4 subagents..."}],"usage":{"input_tokens":120,"output_tokens":40}}}
+{"type":"tool_use_result","timestamp":"2026-05-24T10:30:42Z","message":{"content":[{"type":"tool_result","content":"You've hit your session limit · resets 12pm (America/New_York)"}]}}
+{"type":"assistant","timestamp":"2026-05-24T10:30:43Z","message":{"role":"assistant","content":[{"type":"text","text":"Wiring auth backend..."}],"usage":{"input_tokens":50,"output_tokens":10}}}

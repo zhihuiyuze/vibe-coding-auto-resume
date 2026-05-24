@@ -1,0 +1,28 @@
+# Local state — never commit
+.vibe-run-session
+*.log
+/tmp_test*/
+
+# Env / secrets — never commit, even by mistake
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+secrets.*
+
+# Editor / OS noise
+.DS_Store
+*.swp
+*~
+.idea/
+.vscode/
+
+# Test runtime artifacts
+tests/.tmp/
+tests/coverage/
+
+# Fixture captures may contain pane content. Real captures the user wants to
+# contribute go in tests/fixtures/ explicitly; anything in a sibling captures/
+# directory is treated as private by default.
+captures/

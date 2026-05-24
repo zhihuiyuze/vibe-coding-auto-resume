@@ -1,0 +1,44 @@
+# vibe-coding-auto-resume — L2 grep patterns
+#
+# Format: group:extended-regex (one per line, blank lines and # comments ignored)
+# Sourced by lib/pane-grep.sh. Matched against `tmux capture-pane -p | tail -N` with `grep -iE`.
+#
+# Verbatim Claude TUI text observed in v2.1.150 (sources: GH issues #7641, #7892,
+# #7157, #6392, #10333, #6243). Separator is U+2219 BULLET OPERATOR (∙), not the
+# common U+2022 (•) — `[∙•·]` matches both as defensive.
+#
+# Customization: edit this file freely. install.sh does not overwrite it after
+# first install. If a Claude Code update changes wording, add or extend lines here
+# rather than touching lib/pane-grep.sh.
+
+# 5-hour block hit — two variants seen in v2.1.150:
+#   "5-hour limit reached ∙ resets 12pm"         (older / status-line form)
+#   "You've hit your session limit · resets 12pm (America/New_York)"  (newer / subagent form)
+limit:\b(5-hour limit reached|You'?ve hit your session limit)\s*[∙•·]\s*resets\s+\S+
+
+# Weekly limit hit (model-prefixed variant observed)
+weekly_limit:\b(Opus|Sonnet|Haiku)?\s*weekly limit reached\s*[∙•·]\s*resets\b
+
+# Approaching warning (short yellow tag, no reset time)
+warning:\bApproaching\s+5-hour\s+limit\b
+
+# API-style error variant (can surface in CLI on certain paths, includes IANA tz)
+api_error:\bClaude (AI )?usage limit reached(\.|\|)
+
+# Reset time extraction — formats observed:
+#   "resets 12pm"                         (5h hit, on-the-hour)
+#   "resets Oct 31, 9am"                  (weekly hit)
+#   "reset at 3pm (America/Santiago)"     (API error variant, singular "reset" + "at")
+# Match `resets?` for both forms and `(at\s+)?` to absorb the API variant's "at".
+reset:resets?\s+(at\s+)?([0-9]{1,2}(:[0-9]{2})?(am|pm)\s*\([^)]+\)|[A-Z][a-z]+\s+[0-9]+,\s*[0-9]+(am|pm)|[0-9]{1,2}(:[0-9]{2})?(am|pm))
+
+# Input box idle (prompt cursor waiting). UI uses `>` or `│`.
+idle:^\s*>\s*$|^\s*│\s*$
+
+# Permission modal (tool approval mid-task)
+modal:permission|approve|deny|y/N|continue\?
+
+# Conditional compaction prompt — v2.1.150 verbatim wording UNKNOWN.
+# Issues #46751 and #42146 reference the behavior. This is best-effort.
+# Add verbatim text to tests/fixtures/compaction-prompt-*.txt when seen.
+compaction:compact|summari[sz]e|context.{0,20}large|conversation.{0,20}long

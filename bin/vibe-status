@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# vibe-status — print current usage block + L3 provider in human form.
+# Reads L1 jsonl-stats (deterministic, offline) plus current env config.
+# No network calls; safe to run anywhere.
+set -euo pipefail
+
+_SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+# shellcheck disable=SC1091
+source "$_SCRIPT_DIR/../lib/jsonl-stats.sh"
+# shellcheck disable=SC1091
+source "$_SCRIPT_DIR/../lib/llm-classify.sh"
+
+: "${CC_USAGE_THRESHOLD:=}"
+: "${CC_LLM_PROVIDER:=}"
+
+stats="$(jsonl_stats 2>/dev/null || echo '{}')"
+block_pct="$(jq -r '.block_pct // 0' <<<"$stats")"
+block_end="$(jq -r '.block_end_iso // ""' <<<"$stats")"
+peak="$(jq -r '.peak // 0' <<<"$stats")"
+tokens="$(jq -r '.block_tokens // 0' <<<"$stats")"
+pct_pretty="$(awk -v p="$block_pct" 'BEGIN{ printf "%.1f", p*100 }')"
+case "${CC_USAGE_THRESHOLD:-}" in
+  ""|0|0.0|0.00) threshold_pretty="off (no pre-flight refusal — burn the block)" ;;
+  *) threshold_pretty="$(awk -v t="$CC_USAGE_THRESHOLD" 'BEGIN{ printf "%.0f%% (CC_USAGE_THRESHOLD)", t*100 }')" ;;
+esac
+
+provider="$(detect_provider || true)"
+[[ -z "$provider" || "$provider" == "none" ]] && provider="(disabled — L1+L2 only)"
+
+# ANSI colors when stdout is a terminal.
+if [[ -t 1 ]]; then
+  R="$(printf '\033[31m')"; G="$(printf '\033[32m')"; Y="$(printf '\033[33m')"
+  B="$(printf '\033[1m')"; N="$(printf '\033[0m')"
+else
+  R=""; G=""; Y=""; B=""; N=""
+fi
+
+# Color-pick by absolute % (purely informational since threshold may be off).
+if awk -v p="$block_pct" 'BEGIN{exit !(p>=0.90)}'; then
+  COLOR="$R"
+elif awk -v p="$block_pct" 'BEGIN{exit !(p>=0.60)}'; then
+  COLOR="$Y"
+else
+  COLOR="$G"
+fi
+
+# Bar (20 chars wide).
+bar_width=20
+filled=$(awk -v p="$block_pct" -v w="$bar_width" 'BEGIN{ x=int(p*w); if(x>w)x=w; print x }')
+bar="$(printf '%*s' "$filled" '' | tr ' ' '#')$(printf '%*s' $((bar_width - filled)) '' | tr ' ' '.')"
+
+# Time-to-reset.
+if [[ -n "$block_end" ]]; then
+  end_epoch="$(date -d "$block_end" +%s 2>/dev/null || echo 0)"
+  now_epoch="$(date +%s)"
+  delta=$((end_epoch - now_epoch))
+  if (( delta > 0 )); then
+    h=$((delta / 3600))
+    m=$(( (delta % 3600) / 60 ))
+    eta_str="in ${h}h ${m}m ($(date -d "@$end_epoch" '+%H:%M %Z'))"
+  else
+    eta_str="reset already passed ($(date -d "@$end_epoch" '+%H:%M %Z'))"
+  fi
+else
+  eta_str="unknown (no active session JSONL)"
+fi
+
+echo "${B}vibe status${N}"
+echo "  block usage   ${COLOR}[${bar}] ${pct_pretty}%${N} of historical peak"
+echo "  tokens used   ${tokens}"
+echo "  peak (100%)   ${peak}"
+echo "  resets        ${eta_str}"
+echo "  preflight     ${threshold_pretty}"
+echo "  L3 provider   ${provider}"
+echo "  tmux session  ${TMUX:+inside tmux ($TMUX_PANE)}${TMUX:-NOT in tmux}"

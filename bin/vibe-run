@@ -1,0 +1,340 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+_SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+# shellcheck disable=SC1091
+source "$_SCRIPT_DIR/../lib/jsonl-stats.sh"
+# shellcheck disable=SC1091
+source "$_SCRIPT_DIR/../lib/pane-grep.sh"
+# shellcheck disable=SC1091
+source "$_SCRIPT_DIR/../lib/llm-classify.sh"
+# shellcheck disable=SC1091
+source "$_SCRIPT_DIR/../lib/tmux-pane.sh"
+
+: "${CC_LLM_PROVIDER:=}"
+: "${CC_RESUME_MODE:=auto}"
+: "${CC_SESSION_ID:=}"
+: "${CC_COMPACTION_CHOICE:=keep}"
+# CC_USAGE_THRESHOLD is OPT-IN: unset = no pre-flight refusal (burn the block,
+# let auto-resume handle hit limit). Set to e.g. 0.80 to reserve interactive budget.
+: "${CC_USAGE_THRESHOLD:=}"
+: "${CC_RESUME_MAX_CYCLES:=1}"
+: "${CC_SLEEP_PAD:=60}"
+: "${CC_LLM_REDACT:=1}"
+: "${CC_PANE_TAIL_LINES:=30}"
+: "${CC_PEAK_FALLBACK:=200000}"
+: "${VIBE_STATE_DIR:=${XDG_STATE_HOME:-$HOME/.local/state}/vibe}"
+: "${VIBE_SESSION:=default}"
+: "${CC_SESSION_FILE:=$VIBE_STATE_DIR/$VIBE_SESSION/session-id}"
+mkdir -p "$(dirname "$CC_SESSION_FILE")" 2>/dev/null || true
+
+log()       { echo "[vibe-run] $*" >&2; }
+log_deg()   { echo "[degraded mode] $*" >&2; }
+log_fb()    { echo "[fallback] $*" >&2; }
+die()       { log "$*"; exit 1; }
+
+[[ -z "${TMUX:-}" ]] && die "Must run inside tmux (try: vibe work first)."
+
+_provider="$(detect_provider || true)"
+if [[ "${CC_LLM_PROVIDER:-}" == "none" || -z "$_provider" || "$_provider" == "none" ]]; then
+  l3_enabled=0
+else
+  l3_enabled=1
+fi
+
+# awk float compare (bash can't compare floats natively).
+_fge() { awk -v a="$1" -v b="$2" 'BEGIN{ exit !(a+0 >= b+0) }'; }
+
+preflight() {
+  # Opt-in only: empty/0 threshold disables pre-flight entirely (default).
+  case "${CC_USAGE_THRESHOLD:-}" in
+    ""|0|0.0|0.00) return ;;
+  esac
+
+  local stats block_pct
+  stats="$(jsonl_stats 2>/dev/null || echo '{}')"
+  block_pct="$(jq -r '.block_pct // 0' <<<"$stats" 2>/dev/null || echo 0)"
+
+  if _fge "$block_pct" "$CC_USAGE_THRESHOLD"; then
+    local pct_disp
+    pct_disp="$(awk -v p="$block_pct" 'BEGIN{ printf "%.0f", p*100 }')"
+    log "Pre-flight refusal: block at ${pct_disp}%, reserving budget (CC_USAGE_THRESHOLD=$CC_USAGE_THRESHOLD)."
+    exit 1
+  fi
+
+  # Mid-band probe only matters when threshold is set (i.e. user opted into the soft cap).
+  if _fge "$block_pct" "0.60"; then
+    if pane_grep warning 2>/dev/null; then
+      if (( l3_enabled )); then
+        local pane l3 status
+        pane="$(capture_tail)"
+        l3="$(llm_classify "$pane" 2>/dev/null || echo '{}')"
+        status="$(jq -r '.status // "error"' <<<"$l3" 2>/dev/null || echo error)"
+        if [[ "$status" == "warning" ]]; then
+          log "L3 confirms approaching limit; refusing to start."
+          exit 1
+        fi
+      else
+        log_deg "L2 warning matched at $(awk -v p="$block_pct" 'BEGIN{printf "%.0f",p*100}')%; proceeding (no L3)."
+      fi
+    fi
+  fi
+}
+
+# Sleep until (iso_time + pad seconds). Returns nonzero if parsing fails.
+sleep_until() {
+  local iso="$1" pad="$2" target_epoch now_epoch delta
+  target_epoch="$(date -d "$iso" +%s 2>/dev/null)" || return 1
+  target_epoch=$((target_epoch + pad))
+  now_epoch="$(date +%s)"
+  delta=$((target_epoch - now_epoch))
+  (( delta < 0 )) && delta=0
+  log "Sleeping ${delta}s until $(date -d "@$target_epoch" '+%Y-%m-%d %H:%M:%S %Z')."
+  sleep "$delta"
+}
+
+run_resume_cycle() {
+  local sid="$1"; shift
+  local -a cmd
+  case "$CC_RESUME_MODE" in
+    session-id)
+      [[ -z "$sid" ]] && die "CC_RESUME_MODE=session-id but no session UUID captured."
+      cmd=(claude --resume "$sid" "$@")
+      ;;
+    continue)
+      cmd=(claude --continue "$@")
+      ;;
+    auto|*)
+      if [[ -n "$sid" ]]; then
+        cmd=(claude --resume "$sid" "$@")
+      else
+        log_fb "no session_id, using --continue (accepts cache rebuild)"
+        cmd=(claude --continue "$@")
+      fi
+      ;;
+  esac
+
+  log "Resuming: ${cmd[*]}"
+  "${cmd[@]}" &
+  local resume_pid=$!
+  handle_post_resume "$resume_pid" &
+  local exit_code=0
+  wait "$resume_pid" || exit_code=$?
+
+  # --resume can fail when Anthropic GCs the session. In auto mode, retry with --continue.
+  if (( exit_code != 0 )) && [[ "$CC_RESUME_MODE" == "auto" ]] && [[ "${cmd[*]}" == *--resume* ]]; then
+    log_fb "--resume failed (exit $exit_code), trying --continue"
+    claude --continue "$@" &
+    local cont_pid=$!
+    handle_post_resume "$cont_pid" &
+    exit_code=0
+    wait "$cont_pid" || exit_code=$?
+  fi
+
+  return "$exit_code"
+}
+
+# Parse vibe-specific flags out of "$@" before passing to claude. Anything we
+# don't recognise gets passed through verbatim. All vibe flags override env
+# settings just for this invocation.
+#
+# Recognised:
+#   --resume <uuid> | --resume=<uuid>   → CC_SESSION_ID (also stripped so
+#                                          claude doesn't see --resume X twice
+#                                          on resume cycles)
+#   --threshold <0..1>                   → CC_USAGE_THRESHOLD (opt-in soft cap)
+#   --max-cycles <n>                     → CC_RESUME_MAX_CYCLES (0 = unlimited)
+#   --mode auto|session-id|continue      → CC_RESUME_MODE
+#   --sleep-pad <secs>                   → CC_SLEEP_PAD
+#   --no-l3                              → CC_LLM_PROVIDER=none
+#   --provider deepseek|claude|openai|ollama → CC_LLM_PROVIDER
+extract_vibe_args() {
+  local -a kept=()
+  local i=0
+  local -a args=("$@")
+  while (( i < ${#args[@]} )); do
+    case "${args[i]}" in
+      --resume)
+        if (( i + 1 < ${#args[@]} )); then
+          CC_SESSION_ID="${args[i+1]}"
+          log "flag: --resume $CC_SESSION_ID"
+          i=$((i + 2)); continue
+        fi
+        ;;
+      --resume=*)
+        CC_SESSION_ID="${args[i]#--resume=}"
+        log "flag: --resume=$CC_SESSION_ID"
+        i=$((i + 1)); continue
+        ;;
+      --threshold)
+        if (( i + 1 < ${#args[@]} )); then
+          CC_USAGE_THRESHOLD="${args[i+1]}"
+          log "flag: --threshold $CC_USAGE_THRESHOLD"
+          i=$((i + 2)); continue
+        fi
+        ;;
+      --max-cycles)
+        if (( i + 1 < ${#args[@]} )); then
+          CC_RESUME_MAX_CYCLES="${args[i+1]}"
+          log "flag: --max-cycles $CC_RESUME_MAX_CYCLES"
+          i=$((i + 2)); continue
+        fi
+        ;;
+      --mode)
+        if (( i + 1 < ${#args[@]} )); then
+          CC_RESUME_MODE="${args[i+1]}"
+          log "flag: --mode $CC_RESUME_MODE"
+          i=$((i + 2)); continue
+        fi
+        ;;
+      --sleep-pad)
+        if (( i + 1 < ${#args[@]} )); then
+          CC_SLEEP_PAD="${args[i+1]}"
+          log "flag: --sleep-pad $CC_SLEEP_PAD"
+          i=$((i + 2)); continue
+        fi
+        ;;
+      --no-l3)
+        CC_LLM_PROVIDER="none"
+        log "flag: --no-l3"
+        i=$((i + 1)); continue
+        ;;
+      --provider)
+        if (( i + 1 < ${#args[@]} )); then
+          CC_LLM_PROVIDER="${args[i+1]}"
+          log "flag: --provider $CC_LLM_PROVIDER"
+          i=$((i + 2)); continue
+        fi
+        ;;
+    esac
+    kept+=("${args[i]}")
+    i=$((i + 1))
+  done
+  EXTRACTED_ARGS=("${kept[@]}")
+}
+
+main() {
+  preflight
+
+  # Parse vibe-specific flags out of "$@" before passing to claude.
+  EXTRACTED_ARGS=()
+  extract_vibe_args "$@"
+  set -- "${EXTRACTED_ARGS[@]}"
+  # Re-compute l3_enabled in case --no-l3 / --provider changed things.
+  _provider="$(detect_provider || true)"
+  if [[ "${CC_LLM_PROVIDER:-}" == "none" || -z "$_provider" || "$_provider" == "none" ]]; then
+    l3_enabled=0
+  else
+    l3_enabled=1
+  fi
+
+  if command -v vibe-session-capture >/dev/null 2>&1; then
+    vibe-session-capture &
+  elif [[ -x "$_SCRIPT_DIR/vibe-session-capture" ]]; then
+    "$_SCRIPT_DIR/vibe-session-capture" &
+  fi
+  disown 2>/dev/null || true
+
+  local cycles=0 claude_exit=0
+  while :; do
+    claude_exit=0
+    if (( cycles == 0 )); then
+      # If we already have a session ID (from --resume or env), use it on cycle 0 too.
+      if [[ -n "${CC_SESSION_ID:-}" ]]; then
+        log "Starting with --resume $CC_SESSION_ID"
+        claude --resume "$CC_SESSION_ID" "$@" || claude_exit=$?
+      else
+        claude "$@" || claude_exit=$?
+      fi
+    else
+      local sid=""
+      sid="${CC_SESSION_ID:-$(cat "$CC_SESSION_FILE" 2>/dev/null || true)}"
+      run_resume_cycle "$sid" "$@" || claude_exit=$?
+    fi
+
+    # Post-exit triage.
+    local pane reset_iso="" hit=0
+    pane="$(capture_tail)"
+    if pane_grep limit "$pane" 2>/dev/null \
+        || pane_grep weekly_limit "$pane" 2>/dev/null \
+        || pane_grep api_error "$pane" 2>/dev/null; then
+      hit=1
+    else
+      # L2.5 fallback: scan recent JSONL text. Catches subagent rate-limit
+      # messages buried in Claude's internal tab views that scrolled or were
+      # redrawn out of the tmux pane scrollback.
+      local jsonl_text
+      jsonl_text="$(jsonl_recent_text 500 2>/dev/null || true)"
+      if [[ -n "$jsonl_text" ]] \
+          && (pane_grep limit "$jsonl_text" 2>/dev/null \
+              || pane_grep weekly_limit "$jsonl_text" 2>/dev/null \
+              || pane_grep api_error "$jsonl_text" 2>/dev/null); then
+        hit=1
+        pane="$jsonl_text"
+        log "Detected via JSONL scan (pane tail missed it; likely subagent content)"
+      fi
+    fi
+
+    if (( ! hit )); then
+      log "No limit keywords in pane or JSONL; exiting with code $claude_exit."
+      exit "$claude_exit"
+    fi
+
+    reset_iso="$(extract_reset_time "$pane" 2>/dev/null || true)"
+
+    if (( l3_enabled )); then
+      local l3 status reasoning l3_reset
+      l3="$(llm_classify "$pane" 2>/dev/null || echo '{}')"
+      status="$(jq -r '.status // "error"' <<<"$l3" 2>/dev/null || echo error)"
+      reasoning="$(jq -r '.reasoning // ""' <<<"$l3" 2>/dev/null || echo "")"
+      l3_reset="$(jq -r '.reset_time // ""' <<<"$l3" 2>/dev/null || echo "")"
+      case "$status" in
+        normal_exit)
+          log "L3: normal exit. Done."
+          exit 0
+          ;;
+        error)
+          log "L3 error: $reasoning"
+          exit "$claude_exit"
+          ;;
+        warning)
+          log "L3: approaching limit; not auto-resuming."
+          exit 0
+          ;;
+        limit_hit)
+          [[ -n "$l3_reset" && "$l3_reset" != "null" ]] && reset_iso="$l3_reset"
+          log "L3: limit_hit. reset=${reset_iso:-unknown}"
+          ;;
+        *)
+          log "L3 returned unrecognized status '$status'; exiting."
+          exit "$claude_exit"
+          ;;
+      esac
+    else
+      if [[ -z "$reset_iso" ]]; then
+        log_deg "L2 matched but reset_time unparsed. Set DEEPSEEK_API_KEY for L3. Not resuming."
+        exit 1
+      fi
+      log_deg "L2 matched limit + extracted reset; resuming without LLM confirmation."
+    fi
+
+    if [[ -z "$reset_iso" ]]; then
+      log "No reset time available; cannot schedule resume."
+      exit 1
+    fi
+
+    if ! sleep_until "$reset_iso" "$CC_SLEEP_PAD"; then
+      log "Could not parse reset time '$reset_iso'; aborting."
+      exit 1
+    fi
+
+    cycles=$((cycles + 1))
+    # CC_RESUME_MAX_CYCLES=0 means unlimited.
+    if (( CC_RESUME_MAX_CYCLES > 0 )) && (( cycles > CC_RESUME_MAX_CYCLES )); then
+      log "Reached CC_RESUME_MAX_CYCLES=$CC_RESUME_MAX_CYCLES; not resuming further."
+      exit 0
+    fi
+  done
+}
+
+main "$@"

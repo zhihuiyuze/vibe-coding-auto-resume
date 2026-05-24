@@ -1,0 +1,40 @@
+# ~/.config/vibe/env  —  vibe-coding-auto-resume global config.
+#
+# This file is sourced by the bashrc marker block installed by install.sh.
+# Put TOOL credentials here (LLM API keys for L3 detection). DO NOT put
+# project-specific env here — that belongs in each project's own .env file.
+#
+# This file's permissions should be 600 (only you can read it).
+# install.sh sets that automatically; double-check after `chmod 600 ~/.config/vibe/env`.
+#
+# Lines starting with # are comments. Either `export KEY=value` or `KEY=value`
+# works — the bashrc loader wraps the source with `set -a` so unprefixed
+# assignments get auto-exported.
+
+# -------- LLM provider for L3 detection (pick ONE or leave all unset) --------
+
+# DeepSeek (cheapest, ~$0.05/5h block):
+# export DEEPSEEK_API_KEY=sk-...
+
+# Anthropic Claude Haiku 4.5 (Max subscription does NOT include API; pays separately):
+# export ANTHROPIC_API_KEY=sk-ant-...
+
+# OpenAI gpt-4o-mini:
+# export OPENAI_API_KEY=sk-...
+
+# Local Ollama (untested in this env; needs GPU on your VM):
+# export OLLAMA_HOST=http://localhost:11434
+
+# -------- vibe tunables (all optional; defaults shown) --------
+
+# export CC_LLM_PROVIDER=none           # force-disable L3 (e.g. for offline runs)
+# export CC_USAGE_THRESHOLD=0.80        # OPT-IN soft cap: refuse to start `vibe run`
+#                                       # when current block usage >= this fraction
+#                                       # of historical peak. UNSET BY DEFAULT
+#                                       # (default behavior is to use the full block
+#                                       # and let auto-resume kick in on hit limit).
+# export CC_RESUME_MODE=auto            # auto | session-id | continue
+# export CC_RESUME_MAX_CYCLES=1         # 0 = unlimited resumes per `vibe run`
+# export CC_SLEEP_PAD=60                # seconds added after reset to dodge clock skew
+# export VIBE_PROJECT_ROOT=$HOME/dev/your-project       # pin `vibe work` to a fixed dir
+                                                         # (default: $PWD when invoked)

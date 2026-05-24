@@ -1,0 +1,9 @@
+  ✻ general-purpose · Auth backend + OAuth wiring
+    Read backend/auth/oauth.ts, applied diff, ran smoke tests.
+
+  ✻ general-purpose · Chat + settings E2E specs
+    > Spec hash: SETTINGS_PROFILE_V2
+
+  · You've hit your session limit · resets 12pm (America/New_York)
+
+  Wiring auth backend…

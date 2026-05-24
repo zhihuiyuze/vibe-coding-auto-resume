@@ -1,0 +1,23 @@
+> can you keep going on the migration script, we still need the rollback path
+
+Picking up from where we left off. The forward migration is done; the rollback
+needs to undo the schema changes in reverse order and restore the trigger we
+dropped in step 3.
+
+  Read(migrations/2026_05_20_split_orders.sql)
+  ⎿  Read 142 lines
+
+  Write(migrations/2026_05_20_split_orders.down.sql)
+  ⎿  Wrote 78 lines
+
+  Bash(psql -d test_db -f migrations/2026_05_20_split_orders.down.sql)
+  ⎿  ROLLBACK
+  ⎿  ERROR:  weekly usage limit reached for this model
+
+I wasn't able to validate the rollback against the test DB because the model
+hit its weekly cap mid-validation. The SQL itself is written; you'll want to
+re-run the down-migration once the limit resets.
+
+╭─────────────────────────────────────────────────────────────────────────────╮
+│ Opus weekly limit reached ∙ resets Oct 31, 9am                              │
+╰─────────────────────────────────────────────────────────────────────────────╯

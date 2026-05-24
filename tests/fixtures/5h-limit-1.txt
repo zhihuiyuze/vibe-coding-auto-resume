@@ -1,0 +1,23 @@
+> let me refactor the auth middleware to extract the token validation into a helper
+
+I'll refactor the auth middleware. Let me first read the current implementation
+to understand the surface area.
+
+  Read(src/middleware/auth.ts)
+  ⎿  Read 84 lines
+
+The middleware currently mixes JWT verification with role lookup. I'll split it
+into two helpers and keep the public signature stable.
+
+  Edit(src/middleware/auth.ts)
+  ⎿  Updated src/middleware/auth.ts with 38 additions and 22 removals
+
+  Bash(npm test -- --filter=auth)
+  ⎿  Tests:  12 passed, 12 total
+
+Done — extracted `verifyToken()` and `loadRoles()` as named exports; existing
+`requireAuth` middleware now composes them. All 12 auth tests still pass.
+
+╭─────────────────────────────────────────────────────────────────────────────╮
+│ 5-hour limit reached ∙ resets 12pm                                          │
+╰─────────────────────────────────────────────────────────────────────────────╯

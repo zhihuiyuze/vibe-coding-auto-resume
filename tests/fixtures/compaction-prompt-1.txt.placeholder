@@ -1,0 +1,14 @@
+# Placeholder — verbatim compaction-prompt text TBD.
+#
+# Capture from a real Claude Code v2.1.150 (or current) session the first time
+# the post-resume compaction prompt is observed. Save to:
+#   tests/fixtures/compaction-prompt-1.txt
+# then remove this .placeholder file.
+#
+# Suggested capture command (run inside the affected tmux window):
+#   tmux capture-pane -p -t claude | tail -30 \
+#     > tests/fixtures/compaction-prompt-1.txt
+#
+# Once a real sample lands, lib/tmux-pane.sh handle_post_resume() can be
+# upgraded from "detect + warn" (Phase 1) to "detect + send-keys"
+# (Phase 2) using the verbatim wording and key bindings from the capture.

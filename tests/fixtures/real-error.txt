@@ -1,0 +1,30 @@
+> run the full integration suite against the new search backend
+
+Starting integration suite.
+
+  Bash(npm run test:integration -- --backend=opensearch)
+  ⎿  > app@1.0.0 test:integration
+  ⎿  > vitest run tests/integration --backend=opensearch
+  ⎿
+  ⎿   ❯ tests/integration/search.spec.ts (12)
+  ⎿     ✓ indexes documents on insert (842ms)
+  ⎿     ✓ removes documents on delete (311ms)
+  ⎿     ✗ reranks results by recency (timeout)
+
+MCP error -32603: Internal error invoking tool "opensearch.query"
+  at McpClient.callTool (node:internal/mcp/client:412:19)
+  at async SearchAdapter.query (src/search/adapter.ts:88:14)
+  at async Object.<anonymous> (tests/integration/search.spec.ts:147:22)
+
+Caused by: Error: connect ECONNREFUSED 127.0.0.1:9200
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1605:16) {
+  errno: -111,
+  code: 'ECONNREFUSED',
+  syscall: 'connect',
+  address: '127.0.0.1:9200',
+  port: 9200
+}
+
+The opensearch container appears to be down. I'll stop here so you can bring
+the service back up; the other 11 tests passed but the recency-rerank check
+can't run without a live backend.

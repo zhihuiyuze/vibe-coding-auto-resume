@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+: "${VIBE_STATE_DIR:=${XDG_STATE_HOME:-$HOME/.local/state}/vibe}"
+: "${VIBE_SESSION:=default}"
+: "${CC_SESSION_FILE:=$VIBE_STATE_DIR/$VIBE_SESSION/session-id}"
+mkdir -p "$(dirname "$CC_SESSION_FILE")" 2>/dev/null || true
+: "${CC_SESSION_TIMEOUT:=30}"
+: "${CLAUDE_PROJECTS_DIR:=$HOME/.claude/projects}"
+
+encoded_cwd() { pwd | sed 's|/|-|g'; }
+
+dir="$CLAUDE_PROJECTS_DIR/$(encoded_cwd)"
+mkdir -p "$dir"
+
+# Snapshot pre-existing UUIDs so only newly-created sessions are picked up.
+snapshot_file="$(mktemp)"
+trap 'rm -f "$snapshot_file"' EXIT
+shopt -s nullglob
+for f in "$dir"/*.jsonl; do
+  basename "$f" .jsonl
+done | sort -u > "$snapshot_file"
+shopt -u nullglob
+
+elapsed=0
+while (( elapsed < CC_SESSION_TIMEOUT )); do
+  # Diff current files against snapshot.
+  current="$(mktemp)"
+  shopt -s nullglob
+  for f in "$dir"/*.jsonl; do
+    basename "$f" .jsonl
+  done | sort -u > "$current"
+  shopt -u nullglob
+
+  new_ids="$(comm -23 "$current" "$snapshot_file")"
+  rm -f "$current"
+
+  if [[ -n "$new_ids" ]]; then
+    count=$(echo "$new_ids" | wc -l)
+    if (( count == 1 )); then
+      echo "$new_ids" > "$CC_SESSION_FILE"
+      exit 0
+    else
+      echo "[vibe-session-capture] ambiguous: $count new sessions appeared simultaneously" >&2
+      exit 2
+    fi
+  fi
+
+  sleep 2
+  elapsed=$((elapsed + 2))
+done
+
+echo "[vibe-session-capture] timeout after ${CC_SESSION_TIMEOUT}s; no new JSONL appeared." >&2
+exit 1
