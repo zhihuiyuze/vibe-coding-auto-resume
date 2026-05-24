@@ -56,6 +56,7 @@
   <p class="tagline">Reprise automatique de <code>claude</code> après le reset du quota.</p>
   <nav>
     <a href="#install">Installation</a>
+    <a href="#scenarios">Scénarios</a>
     <a href="#how">Fonctionnement</a>
     <a href="#flags">CLI</a>
     <a href="https://github.com/zhihuiyuze/vibe-coding-auto-resume">Source</a>
@@ -83,17 +84,49 @@
 </section>
 
 <section id="install">
-  <h2>Installation</h2>
+  <h2>Installation (une fois)</h2>
 <pre><code>git clone https://github.com/zhihuiyuze/vibe-coding-auto-resume.git ~/vibe
 cd ~/vibe
 ./install.sh
 source ~/.bashrc</code></pre>
-  <p>Ensuite, depuis n'importe quel répertoire projet :</p>
-<pre><code>vibe work                                       # cd dans le projet + tmux
-vibe run                                        # claude avec reprise automatique
-vibe run --resume &lt;session-uuid&gt;                # reprendre une session existante
-vibe status                                     # voir l'usage du bloc en cours</code></pre>
-  <p>Optionnel : ajoutez une clé LLM dans <code>~/.config/vibe/env</code> (créé par l'installeur) pour activer la détection L3.</p>
+  <p>Idempotent. Symlink les outils dans <code>~/.local/bin/</code>, ajoute une fonction shell <code>vibe</code>, ajoute un snippet tmux. Ne touche jamais à <code>~/.claude/</code> ; ne lance jamais <code>sudo</code> à votre place.</p>
+</section>
+
+<section id="scenarios">
+  <h2>Trois scénarios — choisissez le vôtre</h2>
+
+  <h3>1. Je démarre une nouvelle tâche Claude</h3>
+<pre><code>cd ~/dev/&lt;votre-projet&gt;
+vibe work                  # cd ici + ouvre une session tmux nommée
+vibe run                   # remplace `claude` — mêmes flags, même UI</code></pre>
+  <p>Utilisez Claude normalement. Quand le bloc 5 h est épuisé, <code>vibe run</code> dort jusqu'au reset et relance le <strong>même UUID de session</strong> automatiquement. La nouvelle modale interactive (<code>What do you want to do? 1. Stop and wait …</code>) est auto-gérée — seule l'option sûre « Stop and wait » est jamais sélectionnée.</p>
+  <p>Détacher : <code>Ctrl+b d</code>. Revenir : <code>vibe work</code>.</p>
+
+  <h3>2. Je veux reprendre une session démarrée plus tôt</h3>
+  <p>Si vous vous souvenez du UUID :</p>
+<pre><code>cd ~/dev/&lt;votre-projet&gt;
+vibe work
+vibe run --resume &lt;session-uuid&gt;</code></pre>
+  <p>Sinon, mais c'est la dernière session sur ce projet :</p>
+<pre><code>vibe run --mode continue                    # équivalent `claude --continue` + reprise auto</code></pre>
+  <p>Lister les candidats depuis les noms de fichier JSONL :</p>
+<pre><code>ls -t ~/.claude/projects/$(pwd | sed 's|/|-|g')/*.jsonl | head -5
+# nom de fichier moins `.jsonl` = UUID de session</code></pre>
+
+  <h3>3. Je travaille en SSH et la connexion tombe</h3>
+  <p>La session tmux est le vrai propriétaire du process — votre connexion SSH n'est qu'une fenêtre dessus. SSH tombe, la session continue. Reconnectez-vous plus tard, relancez <code>vibe work</code>, et vous retrouvez tout exactement où vous l'aviez laissé, tâche en cours, scrollback inclus. Tout rate limit pendant votre absence a déjà été géré.</p>
+  <p>Jeter un œil sans attacher :</p>
+<pre><code>ssh vous@server "tmux list-sessions"
+ssh vous@server "tmux capture-pane -t vibe-default -p | tail -50"</code></pre>
+</section>
+
+<section id="llm">
+  <h2>Optionnel : détection LLM plus intelligente</h2>
+  <p>L1 (parsing JSONL) et L2 (regex sur le pane) couvrent les rate limits courants sans appel externe. Pour gérer les changements de wording du TUI et extraire les heures de reset que la regex manque, activez L3 :</p>
+<pre><code>echo 'DEEPSEEK_API_KEY=sk-...' &gt;&gt; ~/.config/vibe/env   # chmod 600, créé par l'installeur
+chmod 600 ~/.config/vibe/env
+source ~/.bashrc</code></pre>
+  <p>Providers : <strong>DeepSeek</strong> (~0,05 $/bloc), <strong>Anthropic Claude Haiku</strong>, <strong>OpenAI gpt-4o-mini</strong>, <strong>Ollama</strong> (local, <code>[untested]</code>). Avec L3 off (défaut tant qu'aucune clé n'est ajoutée), rien ne quitte votre machine.</p>
 </section>
 
 <section id="how">

@@ -56,6 +56,7 @@
   <p class="tagline">Auto-resume <code>claude</code> after rate-limit resets.</p>
   <nav>
     <a href="#install">Install</a>
+    <a href="#scenarios">Scenarios</a>
     <a href="#how">How it works</a>
     <a href="#flags">CLI</a>
     <a href="https://github.com/zhihuiyuze/vibe-coding-auto-resume">Source</a>
@@ -83,17 +84,49 @@
 </section>
 
 <section id="install">
-  <h2>Install</h2>
+  <h2>Install (one time)</h2>
 <pre><code>git clone https://github.com/zhihuiyuze/vibe-coding-auto-resume.git ~/vibe
 cd ~/vibe
 ./install.sh
 source ~/.bashrc</code></pre>
-  <p>Then, from any project directory:</p>
-<pre><code>vibe work                                       # cd into project + tmux
-vibe run                                        # claude with auto-resume
-vibe run --resume &lt;session-uuid&gt;                # resume an existing session
-vibe status                                     # check current block usage</code></pre>
-  <p>Optional: drop an LLM key into <code>~/.config/vibe/env</code> (created by the installer) to upgrade detection accuracy.</p>
+  <p>Idempotent. Symlinks tools to <code>~/.local/bin/</code>, adds a <code>vibe</code> shell function, appends a tmux snippet. Never touches <code>~/.claude/</code>; never runs <code>sudo</code> on your behalf.</p>
+</section>
+
+<section id="scenarios">
+  <h2>Three scenarios — pick the one that matches you</h2>
+
+  <h3>1. I'm starting a new Claude task</h3>
+<pre><code>cd ~/dev/&lt;your-project&gt;
+vibe work                  # cd here + open a named tmux session
+vibe run                   # replaces `claude` — same flags, same UI</code></pre>
+  <p>Use Claude normally. When the 5-hour block is exhausted, <code>vibe run</code> sleeps until the reset and relaunches the <strong>same session UUID</strong> automatically. Anthropic's new interactive limit modal (<code>What do you want to do? 1. Stop and wait …</code>) is auto-handled — only the safe "Stop and wait" option is ever picked.</p>
+  <p>Detach: <code>Ctrl+b d</code>. Come back: <code>vibe work</code>.</p>
+
+  <h3>2. I want to resume a session I started earlier</h3>
+  <p>If you remember the session UUID:</p>
+<pre><code>cd ~/dev/&lt;your-project&gt;
+vibe work
+vibe run --resume &lt;session-uuid&gt;</code></pre>
+  <p>If you don't, but it's the most recent in that project:</p>
+<pre><code>vibe run --mode continue                    # like `claude --continue`, with auto-resume</code></pre>
+  <p>List candidates from JSONL filenames:</p>
+<pre><code>ls -t ~/.claude/projects/$(pwd | sed 's|/|-|g')/*.jsonl | head -5
+# filename minus `.jsonl` = session UUID</code></pre>
+
+  <h3>3. I'm working over SSH and the connection drops</h3>
+  <p>The tmux session is the real process owner — your SSH connection is just a window into it. Drop SSH, the session keeps running. Reconnect later, run <code>vibe work</code> again, and you're back exactly where you left off, mid-task, scrollback and all. Any rate-limit hit during your absence was already handled.</p>
+  <p>Peek without attaching:</p>
+<pre><code>ssh you@server "tmux list-sessions"
+ssh you@server "tmux capture-pane -t vibe-default -p | tail -50"</code></pre>
+</section>
+
+<section id="llm">
+  <h2>Optional: smarter detection via LLM</h2>
+  <p>L1 (JSONL parsing) and L2 (tmux pane regex) cover common rate-limit shapes with zero external calls. To handle TUI wording changes and extract reset times the regex misses, opt into L3:</p>
+<pre><code>echo 'DEEPSEEK_API_KEY=sk-...' &gt;&gt; ~/.config/vibe/env   # chmod 600, created by installer
+chmod 600 ~/.config/vibe/env
+source ~/.bashrc</code></pre>
+  <p>Providers: <strong>DeepSeek</strong> (~$0.05/block), <strong>Anthropic Claude Haiku</strong>, <strong>OpenAI gpt-4o-mini</strong>, <strong>Ollama</strong> (local, <code>[untested]</code>). With L3 off (default until you add a key), nothing leaves your machine.</p>
 </section>
 
 <section id="how">

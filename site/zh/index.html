@@ -56,6 +56,7 @@
   <p class="tagline">Claude Code hit 限额后自动 <code>resume</code>。</p>
   <nav>
     <a href="#install">安装</a>
+    <a href="#scenarios">使用场景</a>
     <a href="#how">工作原理</a>
     <a href="#flags">CLI 参数</a>
     <a href="https://github.com/zhihuiyuze/vibe-coding-auto-resume">源码</a>
@@ -83,17 +84,49 @@
 </section>
 
 <section id="install">
-  <h2>安装</h2>
+  <h2>安装（一次性）</h2>
 <pre><code>git clone https://github.com/zhihuiyuze/vibe-coding-auto-resume.git ~/vibe
 cd ~/vibe
 ./install.sh
 source ~/.bashrc</code></pre>
-  <p>之后在任意项目目录：</p>
-<pre><code>vibe work                                       # 进入项目 + 起 tmux
-vibe run                                        # 启动 claude（带自动续接）
-vibe run --resume &lt;session-uuid&gt;                # 恢复某个旧会话
-vibe status                                     # 查看当前 block 用量</code></pre>
-  <p>可选：往 installer 创建的 <code>~/.config/vibe/env</code> 里塞个 LLM key，升级到三层检测。</p>
+  <p>幂等。把工具软链到 <code>~/.local/bin/</code>，往 <code>~/.bashrc</code> 写一个 <code>vibe</code> shell 函数，往 <code>~/.tmux.conf</code> 追加 snippet。不动 <code>~/.claude/</code>，不替你跑 <code>sudo</code>。</p>
+</section>
+
+<section id="scenarios">
+  <h2>三个场景，对号入座</h2>
+
+  <h3>1. 我要起一个新的 Claude 任务</h3>
+<pre><code>cd ~/dev/&lt;your-project&gt;
+vibe work                  # cd 到这里 + 开命名 tmux session
+vibe run                   # 替代 claude，参数一致 UI 一致</code></pre>
+  <p>正常用 Claude。5 小时 block 烧光时，<code>vibe run</code> sleep 到 reset，自动用<strong>同一个 session UUID</strong> 重启。Anthropic 新的交互式 modal（<code>What do you want to do? 1. Stop and wait …</code>）会被自动处理 — 只选安全选项 "Stop and wait"。</p>
+  <p>暂时离开：<code>Ctrl+b d</code>。回来：<code>vibe work</code>。</p>
+
+  <h3>2. 我想接着之前开过的会话继续</h3>
+  <p>如果你记得 session UUID：</p>
+<pre><code>cd ~/dev/&lt;your-project&gt;
+vibe work
+vibe run --resume &lt;session-uuid&gt;</code></pre>
+  <p>不记得但确定是该项目最近一个 session：</p>
+<pre><code>vibe run --mode continue                    # 等价于 claude --continue，外加 hit limit 自动续接</code></pre>
+  <p>列出可选 UUID：</p>
+<pre><code>ls -t ~/.claude/projects/$(pwd | sed 's|/|-|g')/*.jsonl | head -5
+# 文件名去掉 .jsonl 就是 session UUID</code></pre>
+
+  <h3>3. SSH 上干活，连接动不动就掉</h3>
+  <p>tmux session 才是进程的真正归属，SSH 连接只是窗口。SSH 掉了 session 还在跑。重连后再跑一次 <code>vibe work</code> 就能回到原现场 — 任务进行中、scrollback、所有上下文都在。中间真的 hit 了 limit，wrapper 已经替你处理完了。</p>
+  <p>不 attach 远程偷瞄进度：</p>
+<pre><code>ssh you@server "tmux list-sessions"
+ssh you@server "tmux capture-pane -t vibe-default -p | tail -50"</code></pre>
+</section>
+
+<section id="llm">
+  <h2>可选：开 LLM 增强检测</h2>
+  <p>L1（JSONL 解析）和 L2（tmux pane regex）在常见 rate limit 场景下零外发就够用。想更稳应对 TUI 文案变化、抽 L2 regex 抓不到的 reset 时间，可以 opt-in L3：</p>
+<pre><code>echo 'DEEPSEEK_API_KEY=sk-...' &gt;&gt; ~/.config/vibe/env   # chmod 600，installer 已建
+chmod 600 ~/.config/vibe/env
+source ~/.bashrc</code></pre>
+  <p>支持的 provider：<strong>DeepSeek</strong>（约 $0.05/block）、<strong>Anthropic Claude Haiku</strong>、<strong>OpenAI gpt-4o-mini</strong>、<strong>Ollama</strong>（本地，<code>[untested]</code>）。L3 关闭时（默认，未加 key 前一直是关闭）任何数据都不出本机。</p>
 </section>
 
 <section id="how">

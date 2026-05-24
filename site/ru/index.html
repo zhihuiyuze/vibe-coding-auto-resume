@@ -56,6 +56,7 @@
   <p class="tagline">Автовозобновление <code>claude</code> после сброса лимита.</p>
   <nav>
     <a href="#install">Установка</a>
+    <a href="#scenarios">Сценарии</a>
     <a href="#how">Как работает</a>
     <a href="#flags">CLI</a>
     <a href="https://github.com/zhihuiyuze/vibe-coding-auto-resume">Исходник</a>
@@ -83,17 +84,49 @@
 </section>
 
 <section id="install">
-  <h2>Установка</h2>
+  <h2>Установка (один раз)</h2>
 <pre><code>git clone https://github.com/zhihuiyuze/vibe-coding-auto-resume.git ~/vibe
 cd ~/vibe
 ./install.sh
 source ~/.bashrc</code></pre>
-  <p>Затем из любого каталога проекта:</p>
-<pre><code>vibe work                                       # cd в проект + tmux
-vibe run                                        # claude с автовозобновлением
-vibe run --resume &lt;session-uuid&gt;                # возобновить существующую сессию
-vibe status                                     # текущая утилизация блока</code></pre>
-  <p>Опционально: положите LLM-ключ в <code>~/.config/vibe/env</code> (создаётся установщиком), чтобы включить L3-детекцию.</p>
+  <p>Идемпотентна. Симлинкает инструменты в <code>~/.local/bin/</code>, добавляет shell-функцию <code>vibe</code>, дописывает snippet tmux. Никогда не трогает <code>~/.claude/</code>; никогда не запускает <code>sudo</code> за вас.</p>
+</section>
+
+<section id="scenarios">
+  <h2>Три сценария — выберите свой</h2>
+
+  <h3>1. Начинаю новую задачу в Claude</h3>
+<pre><code>cd ~/dev/&lt;ваш-проект&gt;
+vibe work                  # cd сюда + открыть именованную tmux-сессию
+vibe run                   # замена `claude` — те же флаги, тот же UI</code></pre>
+  <p>Работайте с Claude как обычно. Когда 5-часовой блок исчерпан, <code>vibe run</code> спит до сброса и перезапускает <strong>ту же session UUID</strong> автоматически. Новое интерактивное модальное окно Anthropic (<code>What do you want to do? 1. Stop and wait …</code>) обрабатывается автоматически — выбирается только безопасный пункт «Stop and wait».</p>
+  <p>Отсоединиться: <code>Ctrl+b d</code>. Вернуться: <code>vibe work</code>.</p>
+
+  <h3>2. Хочу продолжить сессию, начатую раньше</h3>
+  <p>Если помните session UUID:</p>
+<pre><code>cd ~/dev/&lt;ваш-проект&gt;
+vibe work
+vibe run --resume &lt;session-uuid&gt;</code></pre>
+  <p>Не помните, но это последняя сессия в проекте:</p>
+<pre><code>vibe run --mode continue                    # эквивалент `claude --continue` + автовозобновление</code></pre>
+  <p>Список кандидатов по именам JSONL:</p>
+<pre><code>ls -t ~/.claude/projects/$(pwd | sed 's|/|-|g')/*.jsonl | head -5
+# имя файла без `.jsonl` = session UUID</code></pre>
+
+  <h3>3. Работаю по SSH, соединение рвётся</h3>
+  <p>tmux-сессия — настоящий владелец процесса; SSH-соединение лишь окно в неё. SSH упал, сессия продолжает работать. Подключаетесь позже, запускаете <code>vibe work</code>, и попадаете ровно туда, где остановились — задача в процессе, scrollback, всё. Любой rate-limit за это время уже обработан.</p>
+  <p>Подсмотреть, не заходя:</p>
+<pre><code>ssh you@server "tmux list-sessions"
+ssh you@server "tmux capture-pane -t vibe-default -p | tail -50"</code></pre>
+</section>
+
+<section id="llm">
+  <h2>Опционально: умнее детекция через LLM</h2>
+  <p>L1 (парсинг JSONL) и L2 (regex по pane) покрывают типовые формы rate limit без внешних вызовов. Чтобы устойчивее обрабатывать смену формулировок TUI и извлекать время сброса, которое regex упускает, включите L3:</p>
+<pre><code>echo 'DEEPSEEK_API_KEY=sk-...' &gt;&gt; ~/.config/vibe/env   # chmod 600, создан установщиком
+chmod 600 ~/.config/vibe/env
+source ~/.bashrc</code></pre>
+  <p>Провайдеры: <strong>DeepSeek</strong> (~$0.05/блок), <strong>Anthropic Claude Haiku</strong>, <strong>OpenAI gpt-4o-mini</strong>, <strong>Ollama</strong> (локально, <code>[untested]</code>). При выключённом L3 (по умолчанию до добавления ключа) ничто не покидает вашу машину.</p>
 </section>
 
 <section id="how">
