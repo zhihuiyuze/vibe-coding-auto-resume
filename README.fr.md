@@ -49,12 +49,22 @@ vibe work
 vibe run --mode continue                    # équivalent à `claude --continue` + reprise auto sur rate limit
 ```
 
-Pour lister les candidats, regardez les noms de fichier JSONL :
+Pour parcourir ce qui est là avec horodatage et un extrait du dernier message user de chaque session :
 
 ```bash
-ls -t ~/.claude/projects/$(pwd | sed 's|/|-|g')/*.jsonl | head -5
-# le nom de fichier moins `.jsonl` est le UUID de session
+vibe history                               # 10 plus récentes pour le cwd courant
+vibe history --limit 0                     # toutes
+vibe history --json                        # pour pipe vers jq / scripts
 ```
+
+Sortie typique :
+
+```
+2026-05-25 12:34:01    43 msgs  e482a7e9-6685-4fd2-bafa-3b86c8adaf21  fix the modal handler when claude exits
+2026-05-24 18:22:11   127 msgs  45abc163-1883-4c2f-ab21-b97a36bb0332  refactor the L3 provider abstraction
+```
+
+Choisissez le UUID voulu et `vibe run --resume <uuid>`.
 
 ### 3. SSH a sauté — comment vérifier que ça tourne encore et y revenir
 

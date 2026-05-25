@@ -110,9 +110,14 @@ vibe work
 vibe run --resume &lt;session-uuid&gt;</code></pre>
   <p>If you don't, but it's the most recent in that project:</p>
 <pre><code>vibe run --mode continue                    # like `claude --continue`, with auto-resume</code></pre>
-  <p>List candidates from JSONL filenames:</p>
-<pre><code>ls -t ~/.claude/projects/$(pwd | sed 's|/|-|g')/*.jsonl | head -5
-# filename minus `.jsonl` = session UUID</code></pre>
+  <p>Browse what's there with timestamps and a snippet of each session's last user message:</p>
+<pre><code>vibe history                               # 10 most recent for the current cwd
+vibe history --limit 0                     # all of them
+vibe history --json                        # for piping into jq / scripts</code></pre>
+  <p>Output looks like:</p>
+<pre><code>2026-05-25 12:34:01    43 msgs  e482a7e9-6685-4fd2-bafa-3b86c8adaf21  fix the modal handler when claude exits
+2026-05-24 18:22:11   127 msgs  45abc163-1883-4c2f-ab21-b97a36bb0332  refactor the L3 provider abstraction</code></pre>
+  <p>Pick the UUID you want and <code>vibe run --resume &lt;uuid&gt;</code>.</p>
 
   <h3>3. SSH dropped — how do I check it's still running and reconnect?</h3>
   <p>tmux owns the process, your shell does not. SSH dies, the session lives. Step-by-step:</p>

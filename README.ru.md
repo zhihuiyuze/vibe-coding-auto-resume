@@ -49,12 +49,22 @@ vibe work
 vibe run --mode continue                    # эквивалент `claude --continue` + автовозобновление при лимите
 ```
 
-Список кандидатов — по именам JSONL-файлов:
+Чтобы посмотреть, что есть, со временем и началом последнего user-сообщения каждой сессии:
 
 ```bash
-ls -t ~/.claude/projects/$(pwd | sed 's|/|-|g')/*.jsonl | head -5
-# имя файла без `.jsonl` — это session UUID
+vibe history                               # 10 самых свежих для текущего cwd
+vibe history --limit 0                     # все
+vibe history --json                        # для пайпа в jq / скрипты
 ```
+
+Вывод примерно такой:
+
+```
+2026-05-25 12:34:01    43 msgs  e482a7e9-6685-4fd2-bafa-3b86c8adaf21  fix the modal handler when claude exits
+2026-05-24 18:22:11   127 msgs  45abc163-1883-4c2f-ab21-b97a36bb0332  refactor the L3 provider abstraction
+```
+
+Берёте нужный UUID и `vibe run --resume <uuid>`.
 
 ### 3. SSH оборвался — как убедиться, что задача жива, и вернуться к ней
 

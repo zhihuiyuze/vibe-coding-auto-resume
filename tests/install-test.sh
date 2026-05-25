@@ -75,6 +75,7 @@ run_install --yes >/dev/null
 assert_symlink "$sandbox/.local/bin/vibe-run"            "~/.local/bin/vibe-run"
 assert_symlink "$sandbox/.local/bin/vibe-session-capture" "~/.local/bin/vibe-session-capture"
 assert_symlink "$sandbox/.local/bin/vibe-status"         "~/.local/bin/vibe-status"
+assert_symlink "$sandbox/.local/bin/vibe-history"        "~/.local/bin/vibe-history"
 
 assert_file "$sandbox/.bashrc" "~/.bashrc"
 assert_file "$sandbox/.tmux.conf" "~/.tmux.conf"
@@ -144,6 +145,7 @@ run_uninstall >/dev/null
 assert_no_file "$sandbox/.local/bin/vibe-run" "~/.local/bin/vibe-run gone"
 assert_no_file "$sandbox/.local/bin/vibe-session-capture" "~/.local/bin/vibe-session-capture gone"
 assert_no_file "$sandbox/.local/bin/vibe-status" "~/.local/bin/vibe-status gone"
+assert_no_file "$sandbox/.local/bin/vibe-history" "~/.local/bin/vibe-history gone"
 
 assert_absent "$sandbox/.bashrc"   "vibe-coding-auto-resume start ==="               "no vibe markers in bashrc"
 assert_absent "$sandbox/.tmux.conf" "vibe-coding-auto-resume start ==="               "no vibe markers in tmux.conf"

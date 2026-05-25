@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+# vibe-history — list Claude Code sessions for the current project.
+#
+# Reads ${CLAUDE_PROJECTS_DIR:-~/.claude/projects}/<encoded-cwd>/*.jsonl,
+# sorted by mtime (newest first). For each: UUID, mtime, message count,
+# and the last user message (truncated). See docs/design/012-vibe-history.md.
+#
+# Flags:
+#   --limit N      show only N most recent (default 10; 0 = all)
+#   --json         emit JSON array instead of human-readable table
+#   --cwd PATH     query a different project (default: $PWD)
+#   -h, --help     this message
+#
+# Read-only. No network. Never writes to ~/.claude/.
+
+set -euo pipefail
+
+usage() {
+  sed -n '3,15p' "$0" | sed 's/^# \?//'
+}
+
+LIMIT=10
+EMIT_JSON=0
+TARGET_CWD="$PWD"
+
+while (( $# )); do
+  case "$1" in
+    --limit)
+      [[ $# -ge 2 ]] || { echo "vibe-history: --limit requires a value" >&2; exit 2; }
+      LIMIT="$2"; shift 2 ;;
+    --json)    EMIT_JSON=1; shift ;;
+    --cwd)
+      [[ $# -ge 2 ]] || { echo "vibe-history: --cwd requires a value" >&2; exit 2; }
+      TARGET_CWD="$2"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *)         echo "vibe-history: unknown flag '$1'" >&2; usage >&2; exit 2 ;;
+  esac
+done
+
+if ! [[ "$LIMIT" =~ ^[0-9]+$ ]]; then
+  echo "vibe-history: --limit must be a non-negative integer (got '$LIMIT')" >&2
+  exit 2
+fi
+
+# Encode cwd the way Claude Code does: replace each / with -.
+# E.g. /home/u/dev/proj → -home-u-dev-proj
+encoded="$(printf '%s' "$TARGET_CWD" | sed 's|/|-|g')"
+proj_dir="${CLAUDE_PROJECTS_DIR:-$HOME/.claude/projects}/$encoded"
+
+if [[ ! -d "$proj_dir" ]]; then
+  echo "(no Claude Code sessions found for $TARGET_CWD)" >&2
+  exit 0
+fi
+
+# Collect JSONL files sorted by mtime, newest first.
+files=()
+while IFS= read -r f; do files+=("$f"); done < <(ls -t "$proj_dir"/*.jsonl 2>/dev/null || true)
+
+if [[ ${#files[@]} -eq 0 ]]; then
+  echo "(no Claude Code sessions found for $TARGET_CWD)" >&2
+  exit 0
+fi
+
+if (( LIMIT > 0 )) && (( ${#files[@]} > LIMIT )); then
+  files=("${files[@]:0:LIMIT}")
+fi
+
+# Extract last user message from a single JSONL file. Handles both string
+# content and array-of-content-blocks content shapes. Skips auto-generated
+# compact-summary and meta rows so the user sees their *actual* last input.
+# Truncation, newline stripping, and unicode handling all happen inside jq
+# (char-aware via .[0:N]), so the caller gets a clean, valid-UTF-8 string —
+# important when this value gets passed through `--arg` into another jq call.
+extract_last_user() {
+  local f="$1"
+  # Real Claude JSONLs occasionally include partial / malformed lines;
+  # jq exits non-zero for the whole file when any single line fails. With
+  # `set -euo pipefail` that would terminate vibe-history mid-loop. We only
+  # care about the rows that DID parse, so swallow the non-zero exit.
+  { jq -r '
+    select(.message.role == "user")
+    | select((.isCompactSummary // false) == false)
+    | select((.isMeta // false) == false)
+    | .message.content
+    | if type == "array" then ([.[] | (.text // "")] | join(" ")) else (. // "") end
+    | tostring
+    | gsub("[\\n\\r\\t]"; " ")
+    | .[0:80]
+  ' "$f" 2>/dev/null | tail -1; } || true
+}
+
+emit_table() {
+  local f uuid mtime msgs last
+  for f in "${files[@]}"; do
+    uuid="$(basename "$f" .jsonl)"
+    mtime="$(stat -c %y "$f" 2>/dev/null | cut -d. -f1)"
+    msgs="$(wc -l < "$f" 2>/dev/null || echo 0)"
+    last="$(extract_last_user "$f")"
+    printf '%-19s %5d msgs  %s  %s\n' "$mtime" "$msgs" "$uuid" "$last"
+  done
+}
+
+emit_json() {
+  local first=1 f uuid mtime msgs last
+  printf '['
+  for f in "${files[@]}"; do
+    uuid="$(basename "$f" .jsonl)"
+    mtime="$(stat -c %y "$f" 2>/dev/null | cut -d. -f1)"
+    msgs="$(wc -l < "$f" 2>/dev/null || echo 0)"
+    last="$(extract_last_user "$f")"
+    # jq -R --arg ... ensures safe JSON escaping.
+    local row
+    row="$(jq -cn \
+      --arg uuid "$uuid" \
+      --arg mtime "$mtime" \
+      --argjson msgs "$msgs" \
+      --arg last "$last" \
+      '{uuid: $uuid, mtime: $mtime, msgs: $msgs, last_user_message: $last}')"
+    if (( first )); then
+      printf '%s' "$row"
+      first=0
+    else
+      printf ',%s' "$row"
+    fi
+  done
+  printf ']\n'
+}
+
+if (( EMIT_JSON )); then
+  emit_json
+else
+  emit_table
+fi

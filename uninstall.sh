@@ -62,6 +62,7 @@ echo "==> Removing symlinks"
 remove_symlink_if_ours "$HOME/.local/bin/vibe-run"
 remove_symlink_if_ours "$HOME/.local/bin/vibe-session-capture"
 remove_symlink_if_ours "$HOME/.local/bin/vibe-status"
+remove_symlink_if_ours "$HOME/.local/bin/vibe-history"
 # Legacy names from earlier installs (cleanup if upgrading from a pre-rename install).
 remove_symlink_if_ours "$HOME/.local/bin/claude-resume"
 remove_symlink_if_ours "$HOME/.local/bin/cc-session-capture"

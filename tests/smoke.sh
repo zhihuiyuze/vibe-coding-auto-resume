@@ -457,6 +457,103 @@ STUB
 fi
 
 ###############################################################################
+section "bin/vibe-history — table + --json + --limit + empty cwd"
+###############################################################################
+
+# Stage a synthetic ~/.claude/projects/<encoded>/ with two JSONLs carrying
+# distinct user messages and different mtimes.
+_VH_TARGET_CWD="/tmp/fake-vh-project"
+_VH_ENCODED="$(printf '%s' "$_VH_TARGET_CWD" | sed 's|/|-|g')"
+_VH_PROJ="$_TMP_ROOT/projects-vh/$_VH_ENCODED"
+mkdir -p "$_VH_PROJ"
+
+# Older session
+cat > "$_VH_PROJ/older-aaaa-aaaa-aaaa-aaaaaaaaaaaa.jsonl" <<'JSONL'
+{"timestamp":"2026-05-22T10:00:00Z","message":{"role":"user","content":"refactor the L3 provider abstraction"}}
+{"timestamp":"2026-05-22T10:00:30Z","message":{"role":"assistant","content":"OK, let me look at it."}}
+JSONL
+# Make it older by touch.
+touch -d "2026-05-22 10:00:00" "$_VH_PROJ/older-aaaa-aaaa-aaaa-aaaaaaaaaaaa.jsonl"
+
+# Newer session with array-style content + a compact-summary that should be SKIPPED
+# + a real user message that should win.
+cat > "$_VH_PROJ/newer-bbbb-bbbb-bbbb-bbbbbbbbbbbb.jsonl" <<'JSONL'
+{"timestamp":"2026-05-25T12:33:00Z","message":{"role":"user","content":"This session is being continued from a previous conversation..."},"isCompactSummary":true}
+{"timestamp":"2026-05-25T12:34:00Z","message":{"role":"user","content":[{"type":"text","text":"fix the modal handler when claude exits"}]}}
+{"timestamp":"2026-05-25T12:34:10Z","message":{"role":"assistant","content":"On it."}}
+{"timestamp":"2026-05-25T12:34:20Z","message":{"role":"user","content":[{"type":"text","text":"actually do something else first"}]}}
+JSONL
+touch -d "2026-05-25 12:34:00" "$_VH_PROJ/newer-bbbb-bbbb-bbbb-bbbbbbbbbbbb.jsonl"
+
+# Unicode + truncation regression: a 3rd session whose last user msg is long
+# Chinese text. Verifies char-aware truncation (no mid-byte cut) + valid JSON
+# round-trip through --arg.
+cat > "$_VH_PROJ/unicode-cccc-cccc-cccc-cccccccccccc.jsonl" <<'JSONL'
+{"timestamp":"2026-05-20T08:00:00Z","message":{"role":"user","content":"修复模态框处理器当claude退出时的问题，并增加单元测试覆盖率到百分之九十以上，确保所有边缘情况都被覆盖到位"}}
+JSONL
+touch -d "2026-05-20 08:00:00" "$_VH_PROJ/unicode-cccc-cccc-cccc-cccccccccccc.jsonl"
+
+run_vh() {
+  CLAUDE_PROJECTS_DIR="$_TMP_ROOT/projects-vh" "$_BIN_DIR/vibe-history" --cwd "$_VH_TARGET_CWD" "$@"
+}
+
+# Table mode: 3 rows (older + newer + unicode), newer first
+out="$(run_vh)"
+line_count="$(echo "$out" | wc -l)"
+assert_eq "$line_count" "3" "vibe-history table: 3 rows for 3 staged sessions"
+
+first_line="$(echo "$out" | head -1)"
+assert_contains "$first_line" "newer-bbbb-bbbb-bbbb-bbbbbbbbbbbb" "vibe-history table: newer session first (mtime-desc)"
+assert_contains "$first_line" "actually do something else first" "vibe-history table: last user msg of newer is captured"
+
+assert_not_contains "$first_line" "This session is being continued" "vibe-history: isCompactSummary row is skipped"
+
+# Unicode row: Chinese content survives, no mojibake
+unicode_line="$(echo "$out" | grep 'unicode-cccc')"
+assert_contains "$unicode_line" "修复模态框" "vibe-history table: unicode content preserved"
+
+# --limit 1
+out="$(run_vh --limit 1)"
+line_count="$(echo "$out" | wc -l)"
+assert_eq "$line_count" "1" "vibe-history --limit 1: caps to 1 row"
+
+# --json: valid JSON array of length 3 (this is the regression that mid-byte
+# truncation used to break)
+out="$(run_vh --json)"
+if echo "$out" | jq -e 'type == "array" and length == 3' >/dev/null 2>&1; then
+  pass "vibe-history --json: valid JSON array of length 3 (incl. unicode row)"
+else
+  fail "vibe-history --json: expected JSON array of length 3 (got: $(echo "$out" | head -c 200))"
+fi
+
+# JSON object shape
+first_uuid="$(echo "$out" | jq -r '.[0].uuid')"
+assert_eq "$first_uuid" "newer-bbbb-bbbb-bbbb-bbbbbbbbbbbb" "vibe-history --json: [0].uuid is newer session"
+
+first_msgs="$(echo "$out" | jq -r '.[0].msgs')"
+assert_eq "$first_msgs" "4" "vibe-history --json: newer session msgs == 4 (incl. compact-summary line)"
+
+# Unicode round-trip through JSON
+uni_msg="$(echo "$out" | jq -r '.[] | select(.uuid | startswith("unicode-")) | .last_user_message')"
+assert_contains "$uni_msg" "修复模态框" "vibe-history --json: unicode last_user_message round-trips"
+
+# Empty cwd (no projects/ subdir for it) → friendly message + exit 0
+out="$(run_vh --cwd /nonexistent/path 2>&1 || true)"
+assert_contains "$out" "no Claude Code sessions found" "vibe-history --cwd /nonexistent: empty-set message"
+
+# --help exits 0 with usage text
+help_out="$("$_BIN_DIR/vibe-history" --help 2>&1)"
+assert_contains "$help_out" "--limit" "vibe-history --help: usage mentions --limit"
+assert_contains "$help_out" "--json"  "vibe-history --help: usage mentions --json"
+
+# Unknown flag exits 2
+set +e
+"$_BIN_DIR/vibe-history" --bogus >/dev/null 2>&1
+rc=$?
+set -e
+assert_eq "$rc" "2" "vibe-history --bogus: rc=2"
+
+###############################################################################
 section "shell/vibe.bash — _vibe_sessions_matching_cwd (stubbed tmux)"
 ###############################################################################
 

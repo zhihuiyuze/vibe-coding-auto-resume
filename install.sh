@@ -116,7 +116,7 @@ fi
 # ---------------------------------------------------------------------------
 echo "==> Installing symlinks to ~/.local/bin"
 mkdir -p "$HOME/.local/bin"
-for tool in vibe-run vibe-session-capture vibe-status; do
+for tool in vibe-run vibe-session-capture vibe-status vibe-history; do
     src="$REPO_DIR/bin/$tool"
     dst="$HOME/.local/bin/$tool"
     ln -sf "$src" "$dst"

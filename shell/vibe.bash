@@ -159,6 +159,8 @@ Usage:
                             no name + N sessions match \$PWD: interactive picker
                             explicit name: skip discovery, attach/create "vibe-<name>"
   vibe ls                   list all vibe-* tmux sessions (cwd, attached, "← here" if cwd matches)
+  vibe history [...flags]   list past Claude Code sessions for \$PWD (UUID, mtime, last user msg)
+                            flags: --limit N (default 10; 0 = all), --json, --cwd PATH
   vibe run [...args]        launch underlying agent (claude) with auto-resume
                             vibe flags (override env config, then pass-through):
                               --resume <uuid>        resume a specific session
@@ -221,6 +223,16 @@ vibe() {
         "$VIBE_HOME/bin/vibe-status" "$@"
       else
         echo "vibe: vibe-status not found on PATH and VIBE_HOME unset" >&2
+        return 127
+      fi
+      ;;
+    history)
+      if command -v vibe-history >/dev/null 2>&1; then
+        vibe-history "$@"
+      elif [[ -n "${VIBE_HOME:-}" && -x "$VIBE_HOME/bin/vibe-history" ]]; then
+        "$VIBE_HOME/bin/vibe-history" "$@"
+      else
+        echo "vibe: vibe-history not found on PATH and VIBE_HOME unset" >&2
         return 127
       fi
       ;;

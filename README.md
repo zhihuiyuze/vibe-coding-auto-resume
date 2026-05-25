@@ -49,12 +49,22 @@ vibe work
 vibe run --mode continue                    # same as `claude --continue`, with auto-resume on rate-limit hit
 ```
 
-To list candidates, peek at the JSONL filenames:
+To browse what's there with timestamps and a snippet of each session's last user message:
 
 ```bash
-ls -t ~/.claude/projects/$(pwd | sed 's|/|-|g')/*.jsonl | head -5
-# the filename minus `.jsonl` is the session UUID
+vibe history                               # 10 most recent for the current cwd
+vibe history --limit 0                     # all of them
+vibe history --json                        # for piping into jq / scripts
 ```
+
+Output looks like:
+
+```
+2026-05-25 12:34:01    43 msgs  e482a7e9-6685-4fd2-bafa-3b86c8adaf21  fix the modal handler when claude exits
+2026-05-24 18:22:11   127 msgs  45abc163-1883-4c2f-ab21-b97a36bb0332  refactor the L3 provider abstraction
+```
+
+Pick the UUID you want and `vibe run --resume <uuid>`.
 
 ### 3. I'm working over SSH and the connection drops
 

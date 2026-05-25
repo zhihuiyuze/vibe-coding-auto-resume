@@ -48,12 +48,22 @@ vibe run --resume <session-uuid>
 vibe run --mode continue                    # 等价 claude --continue，外加 hit limit 自动续
 ```
 
-列出候选 UUID：
+想看看都有哪些，带时间戳和每个 session 最后一条 user 消息的开头：
 
 ```bash
-ls -t ~/.claude/projects/$(pwd | sed 's|/|-|g')/*.jsonl | head -5
-# 文件名去掉 .jsonl 就是 session UUID
+vibe history                               # 当前目录最近 10 个
+vibe history --limit 0                     # 全部
+vibe history --json                        # 给 jq 或脚本管道用
 ```
+
+输出大概长这样：
+
+```
+2026-05-25 12:34:01    43 msgs  e482a7e9-6685-4fd2-bafa-3b86c8adaf21  fix the modal handler when claude exits
+2026-05-24 18:22:11   127 msgs  45abc163-1883-4c2f-ab21-b97a36bb0332  refactor the L3 provider abstraction
+```
+
+挑你要的那个 UUID，`vibe run --resume <uuid>`。
 
 ### 3. SSH 断了，怎么确认还在跑、怎么重连回去
 

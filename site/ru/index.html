@@ -110,9 +110,14 @@ vibe work
 vibe run --resume &lt;session-uuid&gt;</code></pre>
   <p>Не помните, но это последняя сессия в проекте:</p>
 <pre><code>vibe run --mode continue                    # эквивалент `claude --continue` + автовозобновление</code></pre>
-  <p>Список кандидатов по именам JSONL:</p>
-<pre><code>ls -t ~/.claude/projects/$(pwd | sed 's|/|-|g')/*.jsonl | head -5
-# имя файла без `.jsonl` = session UUID</code></pre>
+  <p>Чтобы посмотреть, что есть, со временем и началом последнего user-сообщения каждой сессии:</p>
+<pre><code>vibe history                               # 10 самых свежих для текущего cwd
+vibe history --limit 0                     # все
+vibe history --json                        # для пайпа в jq / скрипты</code></pre>
+  <p>Вывод примерно такой:</p>
+<pre><code>2026-05-25 12:34:01    43 msgs  e482a7e9-6685-4fd2-bafa-3b86c8adaf21  fix the modal handler when claude exits
+2026-05-24 18:22:11   127 msgs  45abc163-1883-4c2f-ab21-b97a36bb0332  refactor the L3 provider abstraction</code></pre>
+  <p>Берёте нужный UUID и <code>vibe run --resume &lt;uuid&gt;</code>.</p>
 
   <h3>3. SSH оборвался — как убедиться, что задача жива, и вернуться к ней</h3>
   <p>tmux держит процесс, а не ваш shell. SSH умер, сессия жива. Пошагово:</p>
